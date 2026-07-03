@@ -49,11 +49,7 @@ function focusBox(index: number): void {
 // --- Translate button enabled state ---------------------------------------
 
 function updateTranslateEnabled(): void {
-  const ready =
-    cityInput.value.trim().length > 0 &&
-    countryInput.value.trim().length > 0 &&
-    filledWords().length > 0
-  translateBtn.disabled = !ready
+  translateBtn.disabled = filledWords().length === 0
 }
 
 // --- Word box behaviour ---------------------------------------------------
