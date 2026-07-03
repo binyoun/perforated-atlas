@@ -2,9 +2,12 @@ import { describe, it, expect } from 'vitest'
 import { translate, SANKYO_30 } from './translate'
 import type { NoteEvent } from './types'
 
+const CITY = 'Hồ Chí Minh'
+const COUNTRY = 'Vietnam'
+
 /** Strip the non-deterministic fields for structural comparison. */
 function stable(text: string): string {
-  const strip = translate(text)
+  const strip = translate(text, CITY, COUNTRY)
   const { id: _id, created_at: _created_at, ...rest } = strip
   void _id
   void _created_at
@@ -31,13 +34,13 @@ describe('translate', () => {
   })
 
   it('2. empty string returns empty notes and 0 length', () => {
-    const strip = translate('')
+    const strip = translate('', CITY, COUNTRY)
     expect(strip.notes).toEqual([])
     expect(strip.strip_length_mm).toBe(0)
   })
 
   it('3. pure rests: three spaces -> three null-pitch notes', () => {
-    const strip = translate('   ')
+    const strip = translate('   ', CITY, COUNTRY)
     expect(strip.notes).toHaveLength(3)
     for (const n of strip.notes) {
       expect(n.pitch).toBeNull()
@@ -46,7 +49,7 @@ describe('translate', () => {
 
   it('4. language parity across vi/ko/en', () => {
     for (const text of ['mưa', '비', 'rain']) {
-      const strip = translate(text)
+      const strip = translate(text, CITY, COUNTRY)
       for (const n of strip.notes) {
         expect(hasNoteShape(n)).toBe(true)
       }
@@ -55,7 +58,7 @@ describe('translate', () => {
   })
 
   it('5. pitch index stability: "aaa" -> three identical G4 notes', () => {
-    const strip = translate('aaa')
+    const strip = translate('aaa', CITY, COUNTRY)
     expect(strip.notes).toHaveLength(3)
     // 'a' = U+0061 = 97, 97 % 30 = 7, SANKYO_30[7] = 'G4'
     expect(SANKYO_30[7]).toBe('G4')
@@ -65,7 +68,7 @@ describe('translate', () => {
   })
 
   it('6. vowels produce warm hues (20-55)', () => {
-    const strip = translate('aeiou')
+    const strip = translate('aeiou', CITY, COUNTRY)
     for (const n of strip.notes) {
       expect(n.hue).not.toBeNull()
       expect(n.hue!).toBeGreaterThanOrEqual(20)
@@ -74,7 +77,7 @@ describe('translate', () => {
   })
 
   it('7. schema shape has all required fields', () => {
-    const strip = translate('rain')
+    const strip = translate('rain', CITY, COUNTRY)
     expect(strip).toHaveProperty('id')
     expect(strip).toHaveProperty('created_at')
     expect(strip).toHaveProperty('locale_hint')
@@ -86,8 +89,8 @@ describe('translate', () => {
   })
 
   it('8. strip_length_mm scales with source length', () => {
-    expect(translate('ab').strip_length_mm).toBeLessThan(
-      translate('abcdefghij').strip_length_mm,
+    expect(translate('ab', CITY, COUNTRY).strip_length_mm).toBeLessThan(
+      translate('abcdefghij', CITY, COUNTRY).strip_length_mm,
     )
   })
 })

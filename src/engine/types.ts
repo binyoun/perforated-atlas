@@ -11,6 +11,9 @@ export interface StripJSON {
   created_at: string // ISO8601
   locale_hint: 'vi' | 'ko' | 'en' | 'unknown'
   source_length: number // character count of original text
+  city: string // place of the memory
+  country: string // country of the memory
+  word_count: number // number of non-empty word boxes
   notes: NoteEvent[]
   palette: [string, string] // two dominant hex colors computed from notes
   strip_length_mm: number // physical strip length

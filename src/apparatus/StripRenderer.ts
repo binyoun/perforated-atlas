@@ -9,21 +9,23 @@ const TRACK_COUNT = 30
 const STRIP_HEIGHT = TRACK_COUNT * (TRACK_HEIGHT + TRACK_GAP) // 360px
 const PIXELS_PER_SECOND = 108 // ~9mm-equivalent scroll per 250ms note
 const READ_HEAD_X_RATIO = 0.32 // comb sits at 32% from left edge
-const PAPER_COLOR = '#F0DEB0'
-const PAPER_EDGE_DARK = '#C8A850'
-const HOLE_COLOR = '#140A00'
+// Paper — cooler, less yellow, more translucent parchment
+const PAPER_COLOR = '#E8E0CC' // was #F0DEB0, too yellow
+const PAPER_EDGE_DARK = '#A09060' // was #C8A850
+// Holes — deeper
+const HOLE_COLOR = '#0C0800' // was #140A00
 const HOLE_RADIUS = 3
-const COMB_COLOR = '#8B6914'
-const TINE_BRIGHT = '#D4A820'
+// Comb — less saturated brass
+const COMB_COLOR = '#6B5214' // was #8B6914
+const TINE_BRIGHT = '#B08C18' // was #D4A820
 const TINE_WIDTH = 3
 const BACKGROUND = '#0b0b0b'
-const COMB_BODY_WIDTH = 22
+const COMB_BODY_WIDTH = 20
 
 const TRACK_PITCH = TRACK_HEIGHT + TRACK_GAP
 const ACTIVE_TOLERANCE_PX = 4
 const TINE_LENGTH = 18
 const EDGE_SHADOW_HEIGHT = 8
-const BLOOM_RADIUS = 40
 
 /**
  * Rounded-rectangle path helper (radius clamped to fit the rect).
@@ -204,9 +206,52 @@ export class StripRenderer {
     ctx.fillRect(0, 0, w, h)
 
     this.drawPaper()
+    this.drawSpotlight()
     this.drawHoles()
     this.drawBlooms()
+    this.drawEdgeFades()
     this.drawComb()
+  }
+
+  /** Subtle backlight at read head — drawn after paper, before holes. */
+  private drawSpotlight(): void {
+    const ctx = this.ctx
+    const readHeadX = this.readHeadX
+    const stripY = this.stripY
+    const stripCenterY = stripY + STRIP_HEIGHT / 2
+    const spotlight = ctx.createRadialGradient(
+      readHeadX,
+      stripCenterY,
+      0,
+      readHeadX,
+      stripCenterY,
+      STRIP_HEIGHT * 0.7,
+    )
+    spotlight.addColorStop(0, 'rgba(255, 240, 180, 0.04)')
+    spotlight.addColorStop(1, 'rgba(0, 0, 0, 0)')
+    ctx.fillStyle = spotlight
+    ctx.fillRect(0, stripY, this.cssWidth, STRIP_HEIGHT)
+  }
+
+  /** Left and right gradient fades over the strip edges. */
+  private drawEdgeFades(): void {
+    const ctx = this.ctx
+    const w = this.cssWidth
+    const stripY = this.stripY
+
+    // Left fade
+    const leftFade = ctx.createLinearGradient(0, stripY, 120, stripY)
+    leftFade.addColorStop(0, 'rgba(11,11,11,1)')
+    leftFade.addColorStop(1, 'rgba(11,11,11,0)')
+    ctx.fillStyle = leftFade
+    ctx.fillRect(0, stripY, 120, STRIP_HEIGHT)
+
+    // Right fade
+    const rightFade = ctx.createLinearGradient(w - 120, stripY, w, stripY)
+    rightFade.addColorStop(0, 'rgba(11,11,11,0)')
+    rightFade.addColorStop(1, 'rgba(11,11,11,1)')
+    ctx.fillStyle = rightFade
+    ctx.fillRect(w - 120, stripY, 120, STRIP_HEIGHT)
   }
 
   private drawPaper(): void {
@@ -218,9 +263,9 @@ export class StripRenderer {
     ctx.fillStyle = PAPER_COLOR
     ctx.fillRect(0, y, w, STRIP_HEIGHT)
 
-    // Track dividers between tracks.
-    ctx.strokeStyle = 'rgba(180,150,80,0.35)'
-    ctx.lineWidth = 1
+    // Very faint track dividers, as if lit from below.
+    ctx.strokeStyle = 'rgba(160, 140, 100, 0.12)'
+    ctx.lineWidth = 0.5
     for (let i = 1; i < TRACK_COUNT; i++) {
       const lineY = Math.round(y + i * TRACK_PITCH) + 0.5
       ctx.beginPath()
@@ -304,16 +349,22 @@ export class StripRenderer {
 
       const holeY =
         y0 + (TRACK_COUNT - 1 - trackIndex) * TRACK_PITCH + TRACK_GAP / 2
-      const cx = holeX + holeWidth / 2
-      const cy = holeY + TRACK_HEIGHT / 2
+      const holeCenterY = holeY + TRACK_HEIGHT / 2
 
-      const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, BLOOM_RADIUS)
-      grad.addColorStop(0, `hsla(${note.hue}, 80%, 70%, 0.6)`)
-      grad.addColorStop(1, `hsla(${note.hue}, 80%, 70%, 0)`)
-      ctx.fillStyle = grad
-      ctx.beginPath()
-      ctx.arc(cx, cy, BLOOM_RADIUS, 0, Math.PI * 2)
-      ctx.fill()
+      // Active note bloom — the note's own hue, lower saturation and opacity.
+      const bloom = ctx.createRadialGradient(
+        readHeadX,
+        holeCenterY,
+        0,
+        readHeadX,
+        holeCenterY,
+        55,
+      )
+      bloom.addColorStop(0, `hsla(${note.hue}, 55%, 65%, 0.45)`)
+      bloom.addColorStop(0.5, `hsla(${note.hue}, 40%, 50%, 0.12)`)
+      bloom.addColorStop(1, 'rgba(0,0,0,0)')
+      ctx.fillStyle = bloom
+      ctx.fillRect(readHeadX - 55, holeCenterY - 55, 110, 110)
     }
   }
 

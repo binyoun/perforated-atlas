@@ -118,13 +118,20 @@ function detectLocale(text: string): StripJSON['locale_hint'] {
 
 // --- Main translation -----------------------------------------------------
 
-export function translate(text: string): StripJSON {
+export function translate(
+  text: string,
+  city: string,
+  country: string,
+): StripJSON {
   const normalized = text.normalize('NFC')
   const locale_hint = detectLocale(normalized)
 
   // Iterate by Unicode code point (not UTF-16 unit).
   const chars = Array.from(normalized)
   const source_length = chars.length
+
+  // Word count: split on whitespace, drop empties.
+  const word_count = normalized.split(/\s+/).filter((w) => w.length > 0).length
 
   const notes: NoteEvent[] = []
   const vowelHues: number[] = []
@@ -191,6 +198,9 @@ export function translate(text: string): StripJSON {
     created_at: new Date().toISOString(),
     locale_hint,
     source_length,
+    city,
+    country,
+    word_count,
     notes,
     palette,
     strip_length_mm,
