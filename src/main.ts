@@ -1,5 +1,6 @@
 import { translate } from './engine/translate'
 import { StripRenderer } from './apparatus/StripRenderer'
+import { SoundEngine } from './sound/SoundEngine'
 import type { NoteEvent } from './engine/types'
 
 const cityInput = document.getElementById('city-input') as HTMLInputElement
@@ -16,9 +17,22 @@ const WORD_COUNT = 12
 
 const renderer = new StripRenderer(canvas)
 
-// Phase 1: just log notes as they cross the read head (no sound yet).
-renderer.onNotePlay = (note: NoteEvent, trackIndex: number) => {
-  console.log('note', note.pitch, 'track', trackIndex, note)
+const soundEngine = new SoundEngine()
+let soundReady = false
+
+async function ensureSound(): Promise<void> {
+  if (soundReady) return
+  try {
+    await soundEngine.init()
+    soundReady = true
+  } catch (e) {
+    console.warn('Audio init failed:', e)
+  }
+}
+
+// Phase 2: play each note as it crosses the read head.
+renderer.onNotePlay = (note: NoteEvent) => {
+  soundEngine.triggerNote(note)
 }
 
 // --- Build 12 word boxes --------------------------------------------------
@@ -105,6 +119,7 @@ function watchPlayback(): void {
   if (playPauseBtn.disabled) return
   if (!renderer.isPlaying) {
     setButtonPlaying(false)
+    soundEngine.stopMechanical()
     return
   }
   requestAnimationFrame(watchPlayback)
@@ -112,7 +127,7 @@ function watchPlayback(): void {
 
 // --- Translate ------------------------------------------------------------
 
-function doTranslate(): void {
+async function doTranslate(): Promise<void> {
   const words = filledWords()
   const text = words.join(' ')
   const city = cityInput.value.trim()
@@ -135,6 +150,8 @@ function doTranslate(): void {
   ].join(' &nbsp;·&nbsp; ')
 
   // Auto-play.
+  await ensureSound()
+  soundEngine.startMechanical()
   renderer.play()
   setButtonPlaying(true)
   watchPlayback()
@@ -144,11 +161,14 @@ translateBtn.addEventListener('click', doTranslate)
 
 // --- Play/pause toggle ----------------------------------------------------
 
-playPauseBtn.addEventListener('click', () => {
+playPauseBtn.addEventListener('click', async () => {
   if (renderer.isPlaying) {
     renderer.pause()
     setButtonPlaying(false)
+    soundEngine.stopMechanical()
   } else {
+    await ensureSound()
+    soundEngine.startMechanical()
     renderer.play()
     setButtonPlaying(true)
     watchPlayback()
