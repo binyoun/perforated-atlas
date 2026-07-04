@@ -11,6 +11,39 @@ function latLonToTile(lat: number, lon: number, zoom: number): { x: number; y: n
   return { x, y, z: zoom }
 }
 
+async function fetchMapFromCoords(lat: number, lon: number): Promise<HTMLImageElement | null> {
+  try {
+    const { x, y, z } = latLonToTile(lat, lon, 15)
+    const tileUrl = `https://basemaps.cartocdn.com/rastertiles/dark_matter/${z}/${x}/${y}.png`
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.src = tileUrl
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve()
+      img.onerror = () => reject(new Error('tile load failed'))
+    })
+    return img
+  } catch {
+    return null
+  }
+}
+
+async function reverseGeocode(lat: number, lon: number): Promise<{ city: string; country: string }> {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json`,
+      { headers: { 'User-Agent': 'perforated-atlas/1.0 (github.com/binyoun/perforated-atlas)' } }
+    )
+    const data = await res.json()
+    const addr = (data.address as Record<string, string>) || {}
+    const city = addr.city || addr.town || addr.municipality || addr.village || addr.county || ''
+    const country = addr.country || ''
+    return { city, country }
+  } catch {
+    return { city: '', country: '' }
+  }
+}
+
 async function fetchMapPaper(
   cityQuery: string,
 ): Promise<{ img: HTMLImageElement; displayName: string } | null> {
@@ -193,6 +226,41 @@ countryInput.addEventListener('input', updateTranslateEnabled)
 cityInput.addEventListener('input', scheduleMapFetch)
 countryInput.addEventListener('input', scheduleMapFetch)
 updateTranslateEnabled()
+
+// --- GPS geolocation (primary source; manual fields are the fallback) --------
+
+function initGeolocation(): void {
+  if (!navigator.geolocation) return
+  if (!uploadedPaper) paperStatus.textContent = 'detecting location…'
+
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      const { latitude, longitude } = pos.coords
+
+      // Tile fetch and reverse geocode in parallel — no forward-geocode step needed
+      const [img, { city, country }] = await Promise.all([
+        fetchMapFromCoords(latitude, longitude),
+        reverseGeocode(latitude, longitude),
+      ])
+
+      // Only fill if the user hasn't typed anything manually
+      if (!cityInput.value && city) cityInput.value = city
+      if (!countryInput.value && country) countryInput.value = country
+
+      if (!uploadedPaper) {
+        pendingPaper = img
+        paperStatus.textContent = city || 'location found'
+      }
+    },
+    () => {
+      // Permission denied or unavailable — fall back to manual entry silently
+      if (!uploadedPaper && !pendingPaper) paperStatus.textContent = ''
+    },
+    { timeout: 10000, maximumAge: 60000 }
+  )
+}
+
+initGeolocation()
 
 // --- Play/pause button UI -------------------------------------------------
 
