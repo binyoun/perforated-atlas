@@ -281,6 +281,108 @@
       letter-spacing: 0.04em;
     }
 
+    .share-panel {
+      margin-top: 1.5rem;
+      padding-top: 1.2rem;
+      border-top: 1px solid #151208;
+    }
+    .share-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 1.5rem;
+    }
+    .qr-img {
+      width: 72px;
+      height: 72px;
+      image-rendering: pixelated;
+      opacity: 0.7;
+    }
+    .share-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      justify-content: center;
+    }
+    .share-btn {
+      background: none;
+      border: 1px solid #2A2010;
+      color: #5A4A2A;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 0.3rem 0.8rem;
+      cursor: pointer;
+      border-radius: 1px;
+      text-align: left;
+      transition: border-color 0.2s, color 0.2s;
+    }
+    .share-btn:hover {
+      border-color: #5A4A28;
+      color: #8B7040;
+    }
+
+    .archive-section {
+      margin-top: 4rem;
+      padding-top: 2rem;
+      border-top: 1px solid #0E0C08;
+    }
+    .archive-heading {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.6rem;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: #3A2E18;
+      margin: 0 0 1.5rem 0;
+    }
+    .archive-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+    .archive-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      background: none;
+      border: none;
+      border-bottom: 1px solid transparent;
+      padding: 0.5rem 0;
+      cursor: pointer;
+      width: 100%;
+      text-align: left;
+      transition: border-color 0.15s;
+    }
+    .archive-row:hover {
+      border-bottom-color: #2A2010;
+    }
+    .archive-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      opacity: 0.6;
+    }
+    .archive-place {
+      font-family: 'Space Grotesk', sans-serif;
+      font-size: 0.85rem;
+      font-weight: 300;
+      color: #7A6A48;
+      flex: 1;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .archive-meta {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.6rem;
+      color: #3A2E18;
+      white-space: nowrap;
+    }
+    .archive-row--new .archive-place {
+      color: #A09060;
+    }
+
     @media (max-width: 600px) {
       main {
         padding: 2rem 1rem;
@@ -315,6 +417,8 @@
         align-items: flex-start;
         gap: 0.5rem;
       }
+      .archive-meta { display: none; }
+      .share-row { flex-direction: column; }
     }
   </style>
 </head>
@@ -364,6 +468,20 @@
         <div id="camera-indicator" class="camera-dot" style="display:none" aria-hidden="true"></div>
         <div class="strip-meta" id="strip-meta"></div>
       </div>
+
+      <div class="share-panel" id="share-panel" style="display:none">
+        <div class="share-row">
+          <img id="qr-img" class="qr-img" src="" alt="QR code" />
+          <div class="share-actions">
+            <button class="share-btn" id="copy-link-btn">copy link</button>
+            <button class="share-btn" id="export-png-btn">export png</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="archive-section" id="archive-section">
+      <!-- populated by ArchiveView -->
     </section>
   </main>
 

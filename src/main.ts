@@ -2,7 +2,11 @@ import { translate } from './engine/translate'
 import { StripRenderer } from './apparatus/StripRenderer'
 import { SoundEngine } from './sound/SoundEngine'
 import { HandPresence } from './presence/HandPresence'
-import type { NoteEvent } from './engine/types'
+import type { NoteEvent, StripJSON } from './engine/types'
+import { saveStrip, loadStrip } from './archive/db'
+import { ArchiveView } from './archive/ArchiveView'
+import { generateQR, exportPNG, stripPermalink } from './archive/export'
+import { archiveEnabled } from './archive/supabase'
 
 function latLonToTile(lat: number, lon: number, zoom: number): { x: number; y: number; z: number } {
   const n = 2 ** zoom
@@ -344,6 +348,30 @@ async function activatePresence(): Promise<void> {
   }
 }
 
+// --- Share UI (QR + permalink + PNG export) -------------------------------
+
+async function updateShareUI(strip: StripJSON): Promise<void> {
+  const panel = document.getElementById('share-panel') as HTMLElement
+  const qrImg = document.getElementById('qr-img') as HTMLImageElement
+  const copyBtn = document.getElementById('copy-link-btn') as HTMLButtonElement
+  const exportBtn = document.getElementById('export-png-btn') as HTMLButtonElement
+
+  if (!archiveEnabled) { panel.style.display = 'none'; return }
+
+  panel.style.display = 'block'
+  qrImg.src = await generateQR(strip.id)
+
+  copyBtn.onclick = async () => {
+    await navigator.clipboard.writeText(stripPermalink(strip.id))
+    copyBtn.textContent = 'copied!'
+    setTimeout(() => { copyBtn.textContent = 'copy link' }, 2000)
+  }
+
+  exportBtn.onclick = () => {
+    exportPNG(canvas, `perforated-atlas-${strip.id.slice(0, 8)}.png`)
+  }
+}
+
 // --- Translate ------------------------------------------------------------
 
 async function doTranslate(): Promise<void> {
@@ -389,7 +417,15 @@ async function doTranslate(): Promise<void> {
   await new Promise((r) => setTimeout(r, 700))
   await renderer.punch()
 
-  // 6. The machine is woken, not operated — wait silently for a hand.
+  // 6. Save to archive (fire-and-forget — don't block playback)
+  void saveStrip(strip).then(() => {
+    archiveView.prepend(strip)
+  })
+
+  // 7. Show share UI (QR + permalink + export)
+  void updateShareUI(strip)
+
+  // 8. The machine is woken, not operated — wait silently for a hand.
   void activatePresence()
 }
 
@@ -414,3 +450,45 @@ playPauseBtn.addEventListener('click', async () => {
     watchPlayback()
   }
 })
+
+// --- Archive view ---------------------------------------------------------
+
+const archiveSection = document.getElementById('archive-section') as HTMLElement
+const archiveView = new ArchiveView(archiveSection)
+
+// When a visitor selects an archive strip, load and play it
+archiveView.onSelect = (strip) => {
+  renderer.load(strip)
+  renderer.setPaper(uploadedPaper ?? pendingPaper)
+  const apparatusArea = document.querySelector('.apparatus-area') as HTMLElement
+  apparatusArea.classList.add('visible')
+  playPauseBtn.disabled = false
+  void updateShareUI(strip)
+  // Update URL hash for shareability
+  history.pushState(null, '', `#/strip/${strip.id}`)
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
+// Load archive on startup (non-blocking)
+void archiveView.load()
+
+// --- Permalink hash routing -----------------------------------------------
+
+async function handleHashRoute(): Promise<void> {
+  const match = location.hash.match(/^#\/strip\/([0-9a-f-]{36})$/)
+  if (!match) return
+  const strip = await loadStrip(match[1])
+  if (!strip) return
+
+  // Load and show the strip without going through the input flow
+  renderer.load(strip)
+  renderer.setPaper(uploadedPaper ?? pendingPaper)
+  const apparatusArea = document.querySelector('.apparatus-area') as HTMLElement
+  apparatusArea.classList.add('visible')
+  playPauseBtn.disabled = false
+
+  void updateShareUI(strip)
+}
+
+window.addEventListener('hashchange', () => void handleHashRoute())
+void handleHashRoute() // check on load
