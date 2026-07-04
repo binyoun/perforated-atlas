@@ -1,6 +1,7 @@
 import { translate } from './engine/translate'
 import { StripRenderer } from './apparatus/StripRenderer'
 import { SoundEngine } from './sound/SoundEngine'
+import { HandPresence } from './presence/HandPresence'
 import type { NoteEvent } from './engine/types'
 
 function latLonToTile(lat: number, lon: number, zoom: number): { x: number; y: number; z: number } {
@@ -139,6 +140,9 @@ const renderer = new StripRenderer(canvas)
 const soundEngine = new SoundEngine()
 let soundReady = false
 
+const handPresence = new HandPresence()
+let presenceActive = false
+
 async function ensureSound(): Promise<void> {
   if (soundReady) return
   try {
@@ -270,15 +274,74 @@ function setButtonPlaying(isPlaying: boolean): void {
   playPauseBtn.setAttribute('aria-label', isPlaying ? 'Pause' : 'Play')
 }
 
+/**
+ * Update the tiny camera status dot in the controls area.
+ * true = hand present, false = camera ready but no hand, null = hide.
+ */
+function setCameraIndicator(present: boolean | null): void {
+  const el = document.getElementById('camera-indicator')
+  if (!el) return
+  if (present === null) {
+    el.style.display = 'none'
+    return
+  }
+  el.style.display = 'block'
+  el.dataset.present = present ? '1' : '0'
+}
+
 /** Poll the renderer so the button reflects when the strip finishes on its own. */
 function watchPlayback(): void {
   if (playPauseBtn.disabled) return
   if (!renderer.isPlaying) {
     setButtonPlaying(false)
     soundEngine.stopMechanical()
+    renderer.setLightIntensity(1.0)
     return
   }
   requestAnimationFrame(watchPlayback)
+}
+
+/**
+ * Wake-not-operate: open the camera and let a hand play/pause the machine.
+ * Idempotent. If the camera is denied or unavailable, the brass button
+ * remains the sole control and the indicator hides itself.
+ */
+async function activatePresence(): Promise<void> {
+  if (presenceActive) return
+  presenceActive = true
+
+  // Wire proximity to light intensity immediately — init is async
+  handPresence.onProximity = (v) => renderer.setLightIntensity(v)
+
+  handPresence.onPresent = async () => {
+    setCameraIndicator(true)
+    if (!renderer.isPlaying) {
+      await ensureSound()
+      soundEngine.startMechanical()
+      renderer.play()
+      setButtonPlaying(true)
+      watchPlayback()
+    }
+  }
+
+  handPresence.onAbsent = () => {
+    setCameraIndicator(false)
+    if (renderer.isPlaying) {
+      renderer.pause()
+      setButtonPlaying(false)
+      soundEngine.stopMechanical()
+    }
+  }
+
+  try {
+    await handPresence.init()
+    handPresence.start()
+    setCameraIndicator(false) // ready, no hand yet
+  } catch {
+    // Camera permission denied or unavailable — brass button fallback only
+    presenceActive = false
+    setCameraIndicator(null) // null = hide the indicator
+  }
 }
 
 // --- Translate ------------------------------------------------------------
@@ -326,11 +389,8 @@ async function doTranslate(): Promise<void> {
   await new Promise((r) => setTimeout(r, 700))
   await renderer.punch()
 
-  // 6. Play.
-  soundEngine.startMechanical()
-  renderer.play()
-  setButtonPlaying(true)
-  watchPlayback()
+  // 6. The machine is woken, not operated — wait silently for a hand.
+  void activatePresence()
 }
 
 translateBtn.addEventListener('click', doTranslate)
@@ -338,6 +398,8 @@ translateBtn.addEventListener('click', doTranslate)
 // --- Play/pause toggle ----------------------------------------------------
 
 playPauseBtn.addEventListener('click', async () => {
+  // A tap on the brass button also tries to wake the camera (idempotent).
+  void activatePresence()
   if (renderer.isPlaying) {
     renderer.pause()
     setButtonPlaying(false)

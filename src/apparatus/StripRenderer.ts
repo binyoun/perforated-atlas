@@ -68,6 +68,8 @@ export class StripRenderer {
 
   private paperImage: HTMLImageElement | null = null
 
+  private lightIntensity = 1.0
+
   onNotePlay: ((note: NoteEvent, trackIndex: number) => void) | null = null
 
   private readonly resizeHandler: () => void
@@ -122,6 +124,14 @@ export class StripRenderer {
     this.paperImage = img
   }
 
+  /**
+   * Modulate the afterglow bloom intensity (0.1–1). Driven by hand proximity:
+   * the machine glows brighter as a hand approaches. Light only, never sound.
+   */
+  setLightIntensity(value: number): void {
+    this.lightIntensity = Math.max(0.1, Math.min(1, value))
+  }
+
   load(strip: StripJSON): void {
     this.glowTracker.clear()
     this.activeNoteIds.clear()
@@ -130,6 +140,7 @@ export class StripRenderer {
     this._currentTime = 0
     this.playing = false
     this.firedNotes.clear()
+    this.lightIntensity = 1.0
     this.cancelRaf()
     this.draw()
   }
@@ -155,6 +166,7 @@ export class StripRenderer {
     this.activeNoteIds.clear()
     this._currentTime = 0
     this.firedNotes.clear()
+    this.lightIntensity = 1.0
     this.draw()
   }
 
@@ -434,10 +446,13 @@ export class StripRenderer {
         entry.trackY,
         70,
       )
-      glow.addColorStop(0, `hsla(${entry.hue}, 60%, 68%, ${entry.alpha * 0.5})`)
+      glow.addColorStop(
+        0,
+        `hsla(${entry.hue}, 60%, 68%, ${entry.alpha * 0.5 * this.lightIntensity})`,
+      )
       glow.addColorStop(
         0.4,
-        `hsla(${entry.hue}, 45%, 55%, ${entry.alpha * 0.18})`,
+        `hsla(${entry.hue}, 45%, 55%, ${entry.alpha * 0.18 * this.lightIntensity})`,
       )
       glow.addColorStop(1, 'rgba(0,0,0,0)')
       ctx.fillStyle = glow
