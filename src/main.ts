@@ -129,28 +129,46 @@ function watchPlayback(): void {
 
 async function doTranslate(): Promise<void> {
   const words = filledWords()
+  if (words.length === 0) return
   const text = words.join(' ')
   const city = cityInput.value.trim()
   const country = countryInput.value.trim()
 
   const strip = translate(text, city, country)
-
-  // Phase 1 debugging.
   console.log('strip JSON', strip)
 
+  // 1. Dissolve the input UI — text becomes pattern; the original is gone.
+  wordGrid.classList.add('dissolving')
+  document.querySelector('.place-fields')?.classList.add('dissolving')
+  document.querySelector('.lang-hint')?.classList.add('dissolving')
+  translateBtn.classList.add('dissolving')
+
+  // 2. Load the strip (holes hidden until punch).
   renderer.load(strip)
+
+  // 3. Show the apparatus area.
+  const apparatusArea = document.querySelector('.apparatus-area') as HTMLElement
+  apparatusArea.classList.add('visible')
 
   playPauseBtn.disabled = false
 
   stripMeta.innerHTML = [
-    strip.city,
-    strip.country,
+    strip.city || '',
+    strip.country || '',
     `${strip.word_count} words`,
     `${strip.strip_length_mm} mm`,
-  ].join(' &nbsp;·&nbsp; ')
+  ]
+    .filter(Boolean)
+    .join('  ·  ')
 
-  // Auto-play.
+  // 4. Init audio during the dissolve pause.
   await ensureSound()
+
+  // 5. Wait for the dissolve to mostly complete, then punch the holes.
+  await new Promise((r) => setTimeout(r, 700))
+  await renderer.punch()
+
+  // 6. Play.
   soundEngine.startMechanical()
   renderer.play()
   setButtonPlaying(true)
@@ -167,6 +185,8 @@ playPauseBtn.addEventListener('click', async () => {
     setButtonPlaying(false)
     soundEngine.stopMechanical()
   } else {
+    // Keep the apparatus visible (already true after first translate).
+    document.querySelector('.apparatus-area')?.classList.add('visible')
     await ensureSound()
     soundEngine.startMechanical()
     renderer.play()

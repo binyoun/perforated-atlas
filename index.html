@@ -152,8 +152,31 @@
       cursor: default;
     }
 
+    /* Word grid dissolve state */
+    .word-grid.dissolving .word-box {
+      opacity: 0;
+      transform: translateY(-3px);
+      transition: opacity 0.9s ease, transform 0.9s ease;
+    }
+
+    .place-fields.dissolving {
+      opacity: 0;
+      transition: opacity 0.9s ease;
+    }
+
+    .lang-hint.dissolving,
+    #translate-btn.dissolving {
+      opacity: 0;
+      transition: opacity 0.6s ease;
+    }
+
     .apparatus-area {
       position: relative;
+      opacity: 0;
+      transition: opacity 0.6s ease;
+    }
+    .apparatus-area.visible {
+      opacity: 1;
     }
     .apparatus-area::after {
       content: '';

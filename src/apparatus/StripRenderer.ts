@@ -1,5 +1,6 @@
 import type { NoteEvent, StripJSON } from '../engine/types'
 import { SANKYO_30 } from '../engine/translate'
+import { GlowTracker } from '../light/GlowTracker'
 
 // --- Visual constants -----------------------------------------------------
 
@@ -62,6 +63,10 @@ export class StripRenderer {
 
   private firedNotes = new Set<number>()
 
+  private glowTracker = new GlowTracker()
+  private activeNoteIds = new Set<number>()
+  private punchProgress = 1
+
   onNotePlay: ((note: NoteEvent, trackIndex: number) => void) | null = null
 
   private readonly resizeHandler: () => void
@@ -112,6 +117,8 @@ export class StripRenderer {
   }
 
   load(strip: StripJSON): void {
+    this.glowTracker.clear()
+    this.activeNoteIds.clear()
     this.strip = strip
     this.totalDuration = strip.notes.reduce((sum, n) => sum + n.dur, 0)
     this._currentTime = 0
@@ -138,9 +145,43 @@ export class StripRenderer {
   }
 
   reset(): void {
+    this.glowTracker.clear()
+    this.activeNoteIds.clear()
     this._currentTime = 0
     this.firedNotes.clear()
     this.draw()
+  }
+
+  /**
+   * Animate holes appearing as if stamped into the strip. Runs for ~1.2s and
+   * resolves when the punch frontier has swept the full strip. Call before play().
+   */
+  punch(): Promise<void> {
+    return new Promise(resolve => {
+      if (!this.strip) {
+        resolve()
+        return
+      }
+
+      const duration = 1200 // ms total punch animation
+      const start = performance.now()
+
+      const animate = (): void => {
+        const elapsed = performance.now() - start
+        this.punchProgress = Math.min(elapsed / duration, 1)
+        this.draw()
+
+        if (this.punchProgress < 1) {
+          requestAnimationFrame(animate)
+        } else {
+          this.punchProgress = 1
+          resolve()
+        }
+      }
+
+      this.punchProgress = 0
+      requestAnimationFrame(animate)
+    })
   }
 
   dispose(): void {
@@ -308,6 +349,11 @@ export class StripRenderer {
       )
       if (trackIndex < 0) continue
 
+      // Punch reveal: holes appear only once the frontier has swept past them.
+      const holeNormalizedX =
+        this.totalDuration > 0 ? note.t / this.totalDuration : 0
+      if (holeNormalizedX > this.punchProgress) continue
+
       const holeWidth = note.dur * PIXELS_PER_SECOND - 2
       const holeX = readHeadX + (note.t - this._currentTime) * PIXELS_PER_SECOND
 
@@ -325,6 +371,25 @@ export class StripRenderer {
       ctx.strokeStyle = 'rgba(80,40,0,0.5)'
       ctx.lineWidth = 0.5
       ctx.stroke()
+
+      // Stamp flash on holes at the punch frontier.
+      const atFrontier = Math.abs(holeNormalizedX - this.punchProgress) < 0.03
+      if (atFrontier && this.punchProgress < 1) {
+        const holeCenterY = holeY + TRACK_HEIGHT / 2
+        const flashX = holeX + holeWidth / 2
+        const flash = ctx.createRadialGradient(
+          flashX,
+          holeCenterY,
+          0,
+          flashX,
+          holeCenterY,
+          8,
+        )
+        flash.addColorStop(0, 'rgba(255,255,255,0.8)')
+        flash.addColorStop(1, 'rgba(255,255,255,0)')
+        ctx.fillStyle = flash
+        ctx.fillRect(flashX - 8, holeCenterY - 8, 16, 16)
+      }
     }
   }
 
@@ -334,38 +399,73 @@ export class StripRenderer {
     const readHeadX = this.readHeadX
     const y0 = this.stripY
 
-    for (const note of this.strip.notes) {
-      if (note.pitch === null || note.hue === null) continue
+    // --- Layer 1: persistent afterglow field ------------------------------
+    // Accumulated blooms from notes that recently crossed the read head, each
+    // decaying over ~1s. Overlapping blooms breathe into a luminous field.
+    ctx.save()
+    ctx.globalCompositeOperation = 'lighter'
+    for (const entry of this.glowTracker.tick()) {
+      const glow = ctx.createRadialGradient(
+        readHeadX,
+        entry.trackY,
+        0,
+        readHeadX,
+        entry.trackY,
+        70,
+      )
+      glow.addColorStop(0, `hsla(${entry.hue}, 60%, 68%, ${entry.alpha * 0.5})`)
+      glow.addColorStop(
+        0.4,
+        `hsla(${entry.hue}, 45%, 55%, ${entry.alpha * 0.18})`,
+      )
+      glow.addColorStop(1, 'rgba(0,0,0,0)')
+      ctx.fillStyle = glow
+      ctx.fillRect(readHeadX - 70, entry.trackY - 70, 140, 140)
+    }
+    ctx.restore()
+
+    // --- Layer 2: instantaneous read-head flash on first activation -------
+    const nowActive = new Set<number>()
+    this.strip.notes.forEach((note, i) => {
+      if (note.pitch === null || note.hue === null) return
       const trackIndex = SANKYO_30.indexOf(
         note.pitch as (typeof SANKYO_30)[number],
       )
-      if (trackIndex < 0) continue
+      if (trackIndex < 0) return
 
       const holeWidth = note.dur * PIXELS_PER_SECOND - 2
       const holeX = readHeadX + (note.t - this._currentTime) * PIXELS_PER_SECOND
       const holeCenterX = holeX + holeWidth / 2
 
-      if (Math.abs(holeCenterX - readHeadX) > ACTIVE_TOLERANCE_PX) continue
+      if (Math.abs(holeCenterX - readHeadX) > ACTIVE_TOLERANCE_PX) return
+
+      nowActive.add(i)
 
       const holeY =
         y0 + (TRACK_COUNT - 1 - trackIndex) * TRACK_PITCH + TRACK_GAP / 2
       const holeCenterY = holeY + TRACK_HEIGHT / 2
 
-      // Active note bloom — the note's own hue, lower saturation and opacity.
-      const bloom = ctx.createRadialGradient(
-        readHeadX,
-        holeCenterY,
-        0,
-        readHeadX,
-        holeCenterY,
-        55,
-      )
-      bloom.addColorStop(0, `hsla(${note.hue}, 55%, 65%, 0.45)`)
-      bloom.addColorStop(0.5, `hsla(${note.hue}, 40%, 50%, 0.12)`)
-      bloom.addColorStop(1, 'rgba(0,0,0,0)')
-      ctx.fillStyle = bloom
-      ctx.fillRect(readHeadX - 55, holeCenterY - 55, 110, 110)
-    }
+      // Only on the false -> true transition: seed a decaying glow and flash.
+      if (!this.activeNoteIds.has(i)) {
+        this.glowTracker.add(note.hue, holeCenterY)
+
+        // Brief sharp flash at the read head — the tine being struck.
+        const flash = ctx.createRadialGradient(
+          readHeadX,
+          holeCenterY,
+          0,
+          readHeadX,
+          holeCenterY,
+          20,
+        )
+        flash.addColorStop(0, `hsla(${note.hue}, 70%, 80%, 0.7)`)
+        flash.addColorStop(0.5, `hsla(${note.hue}, 60%, 65%, 0.2)`)
+        flash.addColorStop(1, 'rgba(0,0,0,0)')
+        ctx.fillStyle = flash
+        ctx.fillRect(readHeadX - 20, holeCenterY - 20, 40, 40)
+      }
+    })
+    this.activeNoteIds = nowActive
   }
 
   private drawComb(): void {
