@@ -3,6 +3,43 @@ import { StripRenderer } from './apparatus/StripRenderer'
 import { SoundEngine } from './sound/SoundEngine'
 import type { NoteEvent } from './engine/types'
 
+function latLonToTile(lat: number, lon: number, zoom: number): { x: number; y: number; z: number } {
+  const n = 2 ** zoom
+  const x = Math.floor(((lon + 180) / 360) * n)
+  const latRad = (lat * Math.PI) / 180
+  const y = Math.floor(((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n)
+  return { x, y, z: zoom }
+}
+
+async function fetchMapPaper(
+  cityQuery: string,
+): Promise<{ img: HTMLImageElement; displayName: string } | null> {
+  try {
+    const geoRes = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(cityQuery)}&format=json&limit=1`,
+      { headers: { 'User-Agent': 'perforated-atlas/1.0 (github.com/binyoun/perforated-atlas)' } }
+    )
+    const geoData = await geoRes.json()
+    if (!geoData.length) return null
+
+    const lat = parseFloat(geoData[0].lat)
+    const lon = parseFloat(geoData[0].lon)
+    const { x, y, z } = latLonToTile(lat, lon, 15)
+    const tileUrl = `https://basemaps.cartocdn.com/rastertiles/dark_matter/${z}/${x}/${y}.png`
+
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.src = tileUrl
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => resolve()
+      img.onerror = () => reject(new Error('tile load failed'))
+    })
+    return { img, displayName: geoData[0].display_name as string }
+  } catch {
+    return null
+  }
+}
+
 const cityInput = document.getElementById('city-input') as HTMLInputElement
 const countryInput = document.getElementById('country-input') as HTMLInputElement
 const wordGrid = document.getElementById('word-grid') as HTMLDivElement
@@ -12,8 +49,57 @@ const playPauseBtn = document.getElementById('play-pause-btn') as HTMLButtonElem
 const iconPlay = playPauseBtn.querySelector('.icon-play') as SVGElement
 const iconPause = playPauseBtn.querySelector('.icon-pause') as SVGElement
 const stripMeta = document.getElementById('strip-meta') as HTMLDivElement
+const imageUpload = document.getElementById('image-upload') as HTMLInputElement
+const paperStatus = document.getElementById('paper-status') as HTMLSpanElement
 
 const WORD_COUNT = 12
+
+// --- Paper source (map tile or uploaded image) ----------------------------
+
+let pendingPaper: HTMLImageElement | null = null
+let uploadedPaper: HTMLImageElement | null = null
+let paperDebounce: ReturnType<typeof setTimeout> | null = null
+let paperFetchSeq = 0
+
+imageUpload.addEventListener('change', () => {
+  const file = imageUpload.files?.[0]
+  if (!file) return
+  const img = new Image()
+  const url = URL.createObjectURL(file)
+  img.onload = () => {
+    URL.revokeObjectURL(url)
+    uploadedPaper = img
+    paperStatus.textContent = file.name
+    // Uploaded image overrides map
+  }
+  img.onerror = () => URL.revokeObjectURL(url)
+  img.src = url
+})
+
+function scheduleMapFetch(): void {
+  if (paperDebounce !== null) clearTimeout(paperDebounce)
+  paperDebounce = setTimeout(() => {
+    const query = `${cityInput.value.trim()} ${countryInput.value.trim()}`.trim()
+    if (!query) {
+      pendingPaper = null
+      if (!uploadedPaper) paperStatus.textContent = ''
+      return
+    }
+    const seq = ++paperFetchSeq
+    if (!uploadedPaper) paperStatus.textContent = 'locating…'
+    void fetchMapPaper(query).then((result) => {
+      // Ignore stale responses from earlier keystrokes.
+      if (seq !== paperFetchSeq) return
+      if (result) {
+        pendingPaper = result.img
+        if (!uploadedPaper) paperStatus.textContent = result.displayName.split(',')[0]
+      } else {
+        pendingPaper = null
+        if (!uploadedPaper) paperStatus.textContent = ''
+      }
+    })
+  }, 800)
+}
 
 const renderer = new StripRenderer(canvas)
 
@@ -104,6 +190,8 @@ for (const box of wordBoxes) {
 
 cityInput.addEventListener('input', updateTranslateEnabled)
 countryInput.addEventListener('input', updateTranslateEnabled)
+cityInput.addEventListener('input', scheduleMapFetch)
+countryInput.addEventListener('input', scheduleMapFetch)
 updateTranslateEnabled()
 
 // --- Play/pause button UI -------------------------------------------------
@@ -145,6 +233,8 @@ async function doTranslate(): Promise<void> {
 
   // 2. Load the strip (holes hidden until punch).
   renderer.load(strip)
+  // Uploaded image takes priority over the auto-fetched map tile.
+  renderer.setPaper(uploadedPaper ?? pendingPaper)
 
   // 3. Show the apparatus area.
   const apparatusArea = document.querySelector('.apparatus-area') as HTMLElement

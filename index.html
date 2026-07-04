@@ -237,6 +237,72 @@
       letter-spacing: 0.05em;
       line-height: 1.8;
     }
+
+    .paper-source {
+      display: flex;
+      align-items: center;
+      gap: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    .upload-label {
+      cursor: pointer;
+    }
+    .upload-hint {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.62rem;
+      color: #3A2E18;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      border-bottom: 1px solid #2A2010;
+      padding-bottom: 1px;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .upload-label:hover .upload-hint {
+      color: #6A5A30;
+      border-color: #5A4A20;
+    }
+    .paper-status {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.6rem;
+      color: #4A3A1C;
+      letter-spacing: 0.04em;
+    }
+
+    @media (max-width: 600px) {
+      main {
+        padding: 2rem 1rem;
+      }
+      header {
+        margin-bottom: 2rem;
+      }
+      .place-fields {
+        gap: 1.5rem;
+        flex-wrap: wrap;
+        margin-bottom: 2rem;
+      }
+      .place-field input {
+        width: 140px;
+      }
+      .word-grid {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 0.4rem;
+      }
+      .word-box {
+        padding: 0.75rem 0.5rem;
+        font-size: 0.8rem;
+      }
+      #strip-canvas {
+        height: 260px;
+      }
+      .controls {
+        gap: 1rem;
+      }
+      .paper-source {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0.5rem;
+      }
+    }
   </style>
 </head>
 <body>
@@ -256,6 +322,14 @@
           <label for="country-input">Country</label>
           <input type="text" id="country-input" placeholder="Vietnam" autocomplete="off" />
         </div>
+      </div>
+
+      <div class="paper-source">
+        <label class="upload-label" id="upload-label">
+          <input type="file" id="image-upload" accept="image/*" style="display:none" />
+          <span class="upload-hint">+ upload image as paper</span>
+        </label>
+        <span class="paper-status" id="paper-status"></span>
       </div>
 
       <div class="word-grid" id="word-grid">

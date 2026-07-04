@@ -15,7 +15,6 @@ const PAPER_COLOR = '#E8E0CC' // was #F0DEB0, too yellow
 const PAPER_EDGE_DARK = '#A09060' // was #C8A850
 // Holes — deeper
 const HOLE_COLOR = '#0C0800' // was #140A00
-const HOLE_RADIUS = 3
 // Comb — less saturated brass
 const COMB_COLOR = '#6B5214' // was #8B6914
 const TINE_BRIGHT = '#B08C18' // was #D4A820
@@ -67,6 +66,8 @@ export class StripRenderer {
   private activeNoteIds = new Set<number>()
   private punchProgress = 1
 
+  private paperImage: HTMLImageElement | null = null
+
   onNotePlay: ((note: NoteEvent, trackIndex: number) => void) | null = null
 
   private readonly resizeHandler: () => void
@@ -114,6 +115,11 @@ export class StripRenderer {
 
   private get stripY(): number {
     return (this.cssHeight - STRIP_HEIGHT) / 2
+  }
+
+  /** Set the strip paper backdrop. Persists across strip loads/resets. */
+  setPaper(img: HTMLImageElement | null): void {
+    this.paperImage = img
   }
 
   load(strip: StripJSON): void {
@@ -299,10 +305,23 @@ export class StripRenderer {
     const ctx = this.ctx
     const w = this.cssWidth
     const y = this.stripY
+    const canvas = { width: w }
+    const stripY = y
 
-    // Paper base fills full width.
-    ctx.fillStyle = PAPER_COLOR
-    ctx.fillRect(0, y, w, STRIP_HEIGHT)
+    // Draw paper (map image or parchment fallback)
+    if (this.paperImage) {
+      // Fixed map backdrop — the city doesn't scroll; the perforations move through it
+      ctx.save()
+      ctx.globalAlpha = 0.38
+      ctx.drawImage(this.paperImage, 0, stripY, canvas.width, STRIP_HEIGHT)
+      ctx.restore()
+      // Dark overlay to keep contrast with holes
+      ctx.fillStyle = 'rgba(11, 11, 11, 0.45)'
+      ctx.fillRect(0, stripY, canvas.width, STRIP_HEIGHT)
+    } else {
+      ctx.fillStyle = PAPER_COLOR
+      ctx.fillRect(0, stripY, canvas.width, STRIP_HEIGHT)
+    }
 
     // Very faint track dividers, as if lit from below.
     ctx.strokeStyle = 'rgba(160, 140, 100, 0.12)'
@@ -363,8 +382,10 @@ export class StripRenderer {
       const holeY =
         y0 + (TRACK_COUNT - 1 - trackIndex) * TRACK_PITCH + TRACK_GAP / 2
 
-      roundRectPath(ctx, holeX, holeY, holeWidth, TRACK_HEIGHT, HOLE_RADIUS)
-      ctx.fillStyle = HOLE_COLOR
+      const holeRadius = Math.min(holeWidth / 2, TRACK_HEIGHT / 2)
+      const holeColor = this.paperImage ? 'rgba(220, 200, 150, 0.18)' : HOLE_COLOR
+      roundRectPath(ctx, holeX, holeY, holeWidth, TRACK_HEIGHT, holeRadius)
+      ctx.fillStyle = holeColor
       ctx.fill()
 
       // 1px lighter inner rim.

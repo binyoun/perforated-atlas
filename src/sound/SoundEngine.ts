@@ -14,17 +14,31 @@ export class SoundEngine {
 
     this.master = new Tone.Limiter(-2).toDestination()
 
-    // Reverb: small room, subtle
-    const reverb = new Tone.Reverb({ decay: 1.8, wet: 0.2 })
+    // Reverb: small wooden music-box resonance chamber
+    const reverb = new Tone.Reverb({ decay: 1.2, wet: 0.28 })
     await reverb.ready
     reverb.connect(this.master)
 
-    // Music-box tine: triangle wave, fast attack, slow natural decay, no sustain
-    this.poly = new Tone.PolySynth(Tone.Synth, {
-      oscillator: { type: 'triangle8' },
-      envelope: { attack: 0.003, decay: 1.5, sustain: 0.0, release: 0.2 },
-      volume: -5,
-    })
+    // Music-box tine: FM synth for a more natural, slightly inharmonic metal tine
+    this.poly = new Tone.PolySynth(Tone.FMSynth, {
+      harmonicity: 5.1,        // slightly inharmonic — real metal tines are not perfectly harmonic
+      modulationIndex: 0.3,    // low FM depth: just adds the metallic transient
+      oscillator: { type: 'sine' },
+      envelope: {
+        attack: 0.001,
+        decay: 1.8,             // slow fundamental decay (~real music-box tine)
+        sustain: 0.0,
+        release: 0.4,
+      },
+      modulation: { type: 'sine' },
+      modulationEnvelope: {
+        attack: 0.001,
+        decay: 0.055,           // very fast overtone decay → brief metallic click that settles to pure tone
+        sustain: 0.0,
+        release: 0.02,
+      },
+      volume: -7,
+    }) as unknown as Tone.PolySynth<Tone.Synth>   // PolySynth<FMSynth> but triggerAttackRelease signature is compatible
     this.poly.connect(reverb)
 
     // Tooth click: very short white noise burst per note
