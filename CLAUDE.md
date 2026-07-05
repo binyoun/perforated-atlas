@@ -144,14 +144,14 @@ All UI colors are CSS custom properties on `:root` in `index.html`:
 | ------------------ | --------- | --------------------------------------- |
 | `--bg`             | `#0b0b0b` | Page + canvas background                |
 | `--paper`          | `#E8E0CC` | Strip parchment (canvas-side reference) |
-| `--brass-dim`      | `#5A4A28` | Button borders                          |
-| `--brass-mid`      | `#9A8A52` | Button text                             |
-| `--brass-bright`   | `#D4BC7A` | Input text, QR foreground               |
-| `--text-primary`   | `#A89060` | Title                                   |
-| `--text-secondary` | `#7A6A48` | Subtitle, afterword, welcome line       |
-| `--text-dim`       | `#5A4A2A` | Hints, archive meta                     |
-| `--text-ghost`     | `#3A3020` | Labels, faint borders                   |
-| `--border`         | `#252015` | Title rule                              |
+| `--brass-dim`      | `#453818` | Button borders                          |
+| `--brass-mid`      | `#7A6A3A` | Button text                             |
+| `--brass-bright`   | `#C8B070` | Input text, QR foreground               |
+| `--text-primary`   | `#8B7A54` | Title                                   |
+| `--text-secondary` | `#5A4A30` | Subtitle, afterword, welcome line       |
+| `--text-dim`       | `#3A2E18` | Hints, archive meta                     |
+| `--text-ghost`     | `#2A2010` | Labels, faint borders                   |
+| `--border`         | `#1E1A12` | Title rule                              |
 
 Canvas-side constants (paper, holes, comb, grain, idle pulse) live in the
 exported `RENDERER_CONFIG` object at the top of `src/apparatus/StripRenderer.ts`.

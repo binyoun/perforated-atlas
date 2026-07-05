@@ -121,27 +121,6 @@ window.addEventListener('pointerdown', endWelcome, { once: true })
 /** Reveal the apparatus section (null-safe; used from several flows). */
 function showApparatus(): void {
   document.querySelector('.apparatus-area')?.classList.add('visible')
-  showControls() // surface the overlaid controls briefly whenever the apparatus appears
-}
-
-// --- Overlaid controls auto-hide -------------------------------------------
-// Controls sit on top of the canvas; show for 3s on playback start or any
-// gesture inside the apparatus, then fade so the strip plays clean.
-
-let controlsTimer: ReturnType<typeof setTimeout> | null = null
-
-function showControls(): void {
-  const area = document.querySelector('.apparatus-area') as HTMLElement
-  area?.classList.add('controls-visible')
-  if (controlsTimer) clearTimeout(controlsTimer)
-  controlsTimer = setTimeout(() => area?.classList.remove('controls-visible'), 3000)
-}
-
-{
-  const area = document.querySelector<HTMLElement>('.apparatus-area')
-  area?.addEventListener('pointermove', showControls)
-  area?.addEventListener('pointerdown', showControls)
-  area?.addEventListener('keydown', showControls)
 }
 
 // --- Post-translation afterword ----------------------------------------------
@@ -403,7 +382,6 @@ async function activatePresence(): Promise<void> {
       soundEngine.startMechanical()
       renderer.play()
       setButtonPlaying(true)
-      showControls()
       watchPlayback()
     }
   }
@@ -536,7 +514,6 @@ async function togglePlayPause(): Promise<void> {
     soundEngine.startMechanical()
     renderer.play()
     setButtonPlaying(true)
-    showControls()
     watchPlayback()
   }
 }
