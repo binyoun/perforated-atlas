@@ -555,26 +555,32 @@ export class StripRenderer {
       const holeY =
         y0 + (C.TRACK_COUNT - 1 - trackIndex) * TRACK_PITCH + C.TRACK_GAP / 2
 
-      const holeRadius = Math.min(holeWidth / 2, C.TRACK_HEIGHT / 2)
+      // Deterministic per-hole variation — same strip always renders identically.
+      const j0 = ((Math.sin(note.t * 127.1 + trackIndex * 311.7) * 43758.5) % 1 + 1) % 1
+      const j1 = ((Math.sin(note.t * 251.3 + trackIndex * 157.9) * 38291.2) % 1 + 1) % 1
+      const j2 = ((Math.sin(note.t *  73.6 + trackIndex * 419.5) * 51847.3) % 1 + 1) % 1
+
+      const holeW = holeWidth * (0.88 + j0 * 0.18)
+      const holeH = C.TRACK_HEIGHT * (0.72 + j1 * 0.26)
+      const yJitter = (j2 - 0.5) * 2.0
+
+      const cx = holeX + holeWidth / 2
+      const cy = holeY + C.TRACK_HEIGHT / 2 + yJitter
+
       const holeColor = this.paperImage ? 'rgba(220, 200, 150, 0.18)' : C.HOLE_COLOR
-      roundRectPath(ctx, holeX, holeY, holeWidth, C.TRACK_HEIGHT, holeRadius)
+      ctx.beginPath()
+      ctx.ellipse(cx, cy, holeW / 2, holeH / 2, 0, 0, Math.PI * 2)
       ctx.fillStyle = holeColor
       ctx.fill()
 
-      // Dark inner rim (die-cut edge).
+      // Dark outer rim (die-cut edge).
       ctx.strokeStyle = C.HOLE_RIM_DARK
       ctx.lineWidth = 0.5
       ctx.stroke()
 
-      // 1px light inset rim — catches the light, suggests physical depth.
-      roundRectPath(
-        ctx,
-        holeX + 1,
-        holeY + 1,
-        holeWidth - 2,
-        C.TRACK_HEIGHT - 2,
-        Math.max(0, holeRadius - 1),
-      )
+      // Light inset rim — physical depth.
+      ctx.beginPath()
+      ctx.ellipse(cx, cy, Math.max(1, holeW / 2 - 1), Math.max(1, holeH / 2 - 1), 0, 0, Math.PI * 2)
       ctx.strokeStyle = C.HOLE_RIM_LIGHT
       ctx.lineWidth = 1
       ctx.stroke()
@@ -582,20 +588,11 @@ export class StripRenderer {
       // Stamp flash on holes at the punch frontier.
       const atFrontier = Math.abs(holeNormalizedX - this.punchProgress) < 0.03
       if (atFrontier && this.punchProgress < 1) {
-        const holeCenterY = holeY + C.TRACK_HEIGHT / 2
-        const flashX = holeX + holeWidth / 2
-        const flash = ctx.createRadialGradient(
-          flashX,
-          holeCenterY,
-          0,
-          flashX,
-          holeCenterY,
-          8,
-        )
+        const flash = ctx.createRadialGradient(cx, cy, 0, cx, cy, 8)
         flash.addColorStop(0, 'rgba(255,255,255,0.8)')
         flash.addColorStop(1, 'rgba(255,255,255,0)')
         ctx.fillStyle = flash
-        ctx.fillRect(flashX - 8, holeCenterY - 8, 16, 16)
+        ctx.fillRect(cx - 8, cy - 8, 16, 16)
       }
     }
   }
