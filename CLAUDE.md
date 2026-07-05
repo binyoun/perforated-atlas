@@ -97,13 +97,15 @@ Index 0 = C4 (lowest), index 29 = A6 (highest).
 
 - **Phase 1 (DONE):** Translation engine + canvas strip renderer. Type -> strip
   JSON -> animated perforated strip scrolls, play/pause with brass button.
-- **Phase 2 (NEXT):** Sound. Tone.js music-box synthesis triggered on
-  `onNotePlay`. Sample assets in `public/samples/`.
-- **Phase 3:** Light. Palette-driven bloom / ambient lighting (`src/light/`).
-- **Phase 4:** Presence. Hand tracking / interaction (`src/presence/`).
-- **Phase 5:** Archive. Persist strips (Supabase), gallery of past memories
-  (`src/archive/`). Store pattern/palette/length only — never raw text.
-- **Phase 6:** Firmware. Physical machine apparatus (`firmware/`).
+- **Phase 2 (DONE):** Sound. Tone.js music-box synthesis triggered on
+  `onNotePlay` (FM tine + tooth click + paper hiss).
+- **Phase 3 (DONE):** Light. Read-head blooms + afterglow field (`src/light/`).
+- **Phase 4 (DONE):** Presence. MediaPipe hand tracking wakes/pauses the
+  machine; proximity drives light intensity (`src/presence/`).
+- **Phase 5 (DONE):** Archive. Supabase persistence, archive list, permalinks,
+  QR + PNG export (`src/archive/`). Pattern/palette/length only — never raw text.
+- **Phase 6:** Firmware. Physical machine apparatus (`firmware/`). Contract
+  ready — see `firmware/INTEGRATION.md`.
 - **Phase 7:** Installation polish + exhibition build.
 
 ---
@@ -134,10 +136,47 @@ perforated-atlas/
 
 ---
 
+## Design system
+
+All UI colors are CSS custom properties on `:root` in `index.html`:
+
+| Variable           | Value     | Role                                    |
+| ------------------ | --------- | --------------------------------------- |
+| `--bg`             | `#0b0b0b` | Page + canvas background                |
+| `--paper`          | `#E8E0CC` | Strip parchment (canvas-side reference) |
+| `--brass-dim`      | `#453818` | Button borders                          |
+| `--brass-mid`      | `#7A6A3A` | Button text                             |
+| `--brass-bright`   | `#C8B070` | Input text, QR foreground               |
+| `--text-primary`   | `#8B7A54` | Title                                   |
+| `--text-secondary` | `#5A4A30` | Subtitle, afterword, welcome line       |
+| `--text-dim`       | `#3A2E18` | Hints, archive meta                     |
+| `--text-ghost`     | `#2A2010` | Labels, faint borders                   |
+| `--border`         | `#1E1A12` | Title rule                              |
+
+Canvas-side constants (paper, holes, comb, grain, idle pulse) live in the
+exported `RENDERER_CONFIG` object at the top of `src/apparatus/StripRenderer.ts`.
+
+UI states: `<main data-state="welcome|input">` gates the onboarding flow
+(title plate + instruction line first, input area after). The renderer has an
+idle breathing pulse at the read head whenever a strip is loaded but not
+playing. Spacebar toggles play/pause once a strip is loaded.
+
+## Version 2 integration
+
+The physical machine (ESP32 + stepper + WS2812 + comb) consumes the same
+`StripJSON`. The full firmware contract — schema guarantees, Supabase REST
+fetch without SDK, pitch→MIDI table, seconds→steps formula, hue→RGB and
+vel→brightness mapping — is in **`firmware/INTEGRATION.md`**. The engine in
+`src/engine/` runs in Node 18+ for pre-generating strips offline.
+
 ## Current status
 
-**Phase 1 complete.** Engine + renderer working, 8 tests passing, build clean.
-**Phase 2 next: Tone.js sound** triggered from `StripRenderer.onNotePlay`.
+**Phases 1–5 complete** plus a professional polish pass: design-system CSS
+variables, museum title plate, welcome/onboarding state, paper grain + shadow
+depth on the strip, idle breathing at the read head, keyboard control,
+CDN/GPS failure hardening, `RENDERER_CONFIG` consolidation,
+`totalDuration`/`progress` getters, and the V2 firmware contract.
+**Phase 6 next: firmware build** against `firmware/INTEGRATION.md`.
 
 ## Conventions
 

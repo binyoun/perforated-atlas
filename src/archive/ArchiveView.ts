@@ -24,6 +24,8 @@ export class ArchiveView {
       this.container.style.display = 'none'
       return
     }
+    // Section starts hidden in the HTML; only reveal once there is content.
+    this.container.style.display = ''
     this.container.innerHTML = ''
 
     const heading = document.createElement('p')
@@ -63,8 +65,14 @@ export class ArchiveView {
 
   /** Prepend a newly created strip to the archive without reloading. */
   prepend(strip: StripJSON): void {
+    if (!archiveEnabled) return
     const list = this.container.querySelector('.archive-list')
-    if (!list) return
+    if (!list) {
+      // First strip in an empty archive: build the section around it.
+      this.render([strip])
+      this.container.querySelector('.archive-row')?.classList.add('archive-row--new')
+      return
+    }
 
     const row = document.createElement('button')
     row.className = 'archive-row archive-row--new'

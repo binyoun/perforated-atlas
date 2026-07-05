@@ -34,13 +34,22 @@ export class HandPresence {
    * Resolves when ready, or throws if permission is denied.
    */
   async init(): Promise<void> {
-    // Load the MediaPipe WASM bundle and hand-landmark model from CDN
-    const vision = await FilesetResolver.forVisionTasks(WASM_CDN)
-    this.landmarker = await HandLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
-      runningMode: 'VIDEO',
-      numHands: 1,
-    })
+    // Load the MediaPipe WASM bundle and hand-landmark model from CDN.
+    // In a gallery without internet this can fail — degrade cleanly to
+    // "no presence" instead of leaving the machine half-initialized.
+    try {
+      const vision = await FilesetResolver.forVisionTasks(WASM_CDN)
+      this.landmarker = await HandLandmarker.createFromOptions(vision, {
+        baseOptions: { modelAssetPath: MODEL_URL, delegate: 'GPU' },
+        runningMode: 'VIDEO',
+        numHands: 1,
+      })
+    } catch (e) {
+      console.warn('HandPresence: model load failed, presence disabled:', e)
+      this.landmarker = null
+      this.onAbsent?.() // reset any presence-driven UI once
+      return // brass button remains the sole control
+    }
 
     // Open camera — hidden video element, front-facing camera preferred
     const stream = await navigator.mediaDevices.getUserMedia({

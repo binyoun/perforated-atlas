@@ -4,16 +4,42 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Perforated Atlas</title>
+  <meta name="description" content="A machine for translating vanishing urban memories of water into perforated music-box strips. The words disappear; only the pattern remains." />
+
+  <!-- Open Graph -->
+  <meta property="og:title" content="Perforated Atlas" />
+  <meta property="og:description" content="A machine for translating vanishing urban memories of water into perforated music-box strips. The words disappear; only the pattern remains." />
+  <meta property="og:type" content="website" />
+  <meta property="og:url" content="https://binyoun.github.io/perforated-atlas/" />
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary" />
+  <meta name="twitter:title" content="Perforated Atlas" />
+  <meta name="twitter:description" content="A machine for translating vanishing urban memories of water into perforated music-box strips." />
+
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500&family=JetBrains+Mono:wght@300;400&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --bg: #0b0b0b;
+      --paper: #E8E0CC;
+      --brass-dim: #453818;
+      --brass-mid: #7A6A3A;
+      --brass-bright: #C8B070;
+      --text-primary: #8B7A54;
+      --text-secondary: #5A4A30;
+      --text-dim: #3A2E18;
+      --text-ghost: #2A2010;
+      --border: #1E1A12;
+    }
+
     * {
       box-sizing: border-box;
     }
 
     body {
-      background: #0b0b0b;
+      background: var(--bg);
       color: #7A6A48;
       font-family: 'Space Grotesk', sans-serif;
       margin: 0;
@@ -37,20 +63,54 @@
       font-weight: 300;
       letter-spacing: 0.3em;
       text-transform: uppercase;
-      color: #8B7A54;
+      color: var(--text-primary);
+      text-shadow: 0 0 20px rgba(200,160,60,0.08);
       margin: 0;
+    }
+
+    .title-rule {
+      border: none;
+      border-top: 1px solid var(--border);
+      width: 100%;
+      margin: 1rem 0;
     }
 
     .subtitle {
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.7rem;
-      color: #5A4A30;
+      color: var(--text-secondary);
       letter-spacing: 0.05em;
       margin-top: 0.25rem;
     }
 
+    /* --- Welcome state ---------------------------------------------------- */
+
+    .welcome-line {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+      letter-spacing: 0.06em;
+      line-height: 2;
+      margin: 2.5rem 0 0 0;
+      opacity: 0;
+      transition: opacity 1.2s ease;
+    }
+    main[data-state="welcome"] .welcome-line.shown {
+      opacity: 1;
+    }
+    main[data-state="input"] .welcome-line {
+      opacity: 0;
+      transition: opacity 0.6s ease;
+    }
+
     .input-area {
       margin-bottom: 2rem;
+      opacity: 1;
+      transition: opacity 0.9s ease;
+    }
+    main[data-state="welcome"] .input-area {
+      opacity: 0;
+      pointer-events: none;
     }
 
     .place-fields {
@@ -74,7 +134,7 @@
       background: transparent;
       border: none;
       border-bottom: 1px solid #3E3018;
-      color: #C8B070;
+      color: var(--brass-bright);
       font-family: 'Space Grotesk', sans-serif;
       font-size: 0.95rem;
       font-weight: 300;
@@ -87,6 +147,15 @@
       border-bottom-color: #7A6030;
     }
 
+    .input-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.6rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--text-ghost);
+      margin: 0 0 0.5rem 0;
+    }
+
     .word-grid {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -97,7 +166,7 @@
       background: rgba(255,255,255,0.018);
       border: 1px solid rgba(255,255,255,0.04);
       border-radius: 1px;
-      color: #C8B070;
+      color: var(--brass-bright);
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.85rem;
       font-weight: 300;
@@ -132,8 +201,8 @@
 
     #translate-btn {
       background: none;
-      border: 1px solid #453818;
-      color: #7A6A3A;
+      border: 1px solid var(--brass-dim);
+      color: var(--brass-mid);
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.7rem;
       letter-spacing: 0.15em;
@@ -203,6 +272,21 @@
       margin-top: 1.2rem;
     }
 
+    .btn-stack {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .btn-label {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.55rem;
+      letter-spacing: 0.15em;
+      color: var(--text-ghost);
+      text-transform: uppercase;
+      user-select: none;
+    }
+
     .brass-btn {
       width: 42px;
       height: 42px;
@@ -238,6 +322,19 @@
       line-height: 1.8;
     }
 
+    .afterword {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      color: var(--text-secondary);
+      letter-spacing: 0.08em;
+      margin: 1rem 0 0 0;
+      opacity: 0;
+      transition: opacity 1.2s ease;
+    }
+    .afterword.visible {
+      opacity: 1;
+    }
+
     .camera-dot {
       width: 5px;
       height: 5px;
@@ -263,10 +360,10 @@
     .upload-hint {
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.62rem;
-      color: #3A2E18;
+      color: var(--text-dim);
       letter-spacing: 0.08em;
       text-transform: uppercase;
-      border-bottom: 1px solid #2A2010;
+      border-bottom: 1px solid var(--text-ghost);
       padding-bottom: 1px;
       transition: color 0.2s, border-color 0.2s;
     }
@@ -305,7 +402,7 @@
     }
     .share-btn {
       background: none;
-      border: 1px solid #2A2010;
+      border: 1px solid var(--text-ghost);
       color: #5A4A2A;
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.65rem;
@@ -332,7 +429,7 @@
       font-size: 0.6rem;
       letter-spacing: 0.25em;
       text-transform: uppercase;
-      color: #3A2E18;
+      color: var(--text-dim);
       margin: 0 0 1.5rem 0;
     }
     .archive-list {
@@ -354,7 +451,7 @@
       transition: border-color 0.15s;
     }
     .archive-row:hover {
-      border-bottom-color: #2A2010;
+      border-bottom-color: var(--text-ghost);
     }
     .archive-dot {
       width: 6px;
@@ -376,7 +473,7 @@
     .archive-meta {
       font-family: 'JetBrains Mono', monospace;
       font-size: 0.6rem;
-      color: #3A2E18;
+      color: var(--text-dim);
       white-space: nowrap;
     }
     .archive-row--new .archive-place {
@@ -423,10 +520,12 @@
   </style>
 </head>
 <body>
-  <main>
+  <main data-state="welcome">
     <header>
-      <h1>Perforated Atlas</h1>
-      <p class="subtitle">Leave a memory of water in the city.</p>
+      <h1>PERFORATED ATLAS</h1>
+      <hr class="title-rule" />
+      <p class="subtitle">A machine for translating vanishing urban memories.</p>
+      <p class="welcome-line" id="welcome-line">Leave a memory of water in the city.<br />Type it in any language. The words will disappear.</p>
     </header>
 
     <section class="input-area">
@@ -449,6 +548,7 @@
         <span class="paper-status" id="paper-status"></span>
       </div>
 
+      <p class="input-label">Your memory</p>
       <div class="word-grid" id="word-grid">
         <!-- 12 word boxes generated by main.ts -->
       </div>
@@ -461,13 +561,17 @@
     <section class="apparatus-area">
       <canvas id="strip-canvas"></canvas>
       <div class="controls">
-        <button id="play-pause-btn" class="brass-btn" disabled aria-label="Play">
-          <svg class="icon-play" viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
-          <svg class="icon-pause" viewBox="0 0 24 24" style="display:none"><rect x="6" y="3" width="4" height="18"/><rect x="14" y="3" width="4" height="18"/></svg>
-        </button>
+        <div class="btn-stack">
+          <button id="play-pause-btn" class="brass-btn" disabled aria-label="Play">
+            <svg class="icon-play" viewBox="0 0 24 24"><polygon points="5,3 19,12 5,21"/></svg>
+            <svg class="icon-pause" viewBox="0 0 24 24" style="display:none"><rect x="6" y="3" width="4" height="18"/><rect x="14" y="3" width="4" height="18"/></svg>
+          </button>
+          <span class="btn-label" id="btn-label">PLAY</span>
+        </div>
         <div id="camera-indicator" class="camera-dot" style="display:none" aria-hidden="true"></div>
         <div class="strip-meta" id="strip-meta"></div>
       </div>
+      <p class="afterword" id="afterword">The words are gone. Only the pattern remains.</p>
 
       <div class="share-panel" id="share-panel" style="display:none">
         <div class="share-row">
@@ -480,7 +584,7 @@
       </div>
     </section>
 
-    <section class="archive-section" id="archive-section">
+    <section class="archive-section" id="archive-section" style="display:none">
       <!-- populated by ArchiveView -->
     </section>
   </main>

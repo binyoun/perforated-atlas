@@ -194,6 +194,8 @@ export function translate(
   }
 
   return {
+    // Requires Node 18+ or any Web Crypto environment — relevant if firmware
+    // tooling runs this engine in Node to pre-generate strips.
     id: crypto.randomUUID(),
     created_at: new Date().toISOString(),
     locale_hint,

@@ -2,30 +2,54 @@ import type { NoteEvent, StripJSON } from '../engine/types'
 import { SANKYO_30 } from '../engine/translate'
 import { GlowTracker } from '../light/GlowTracker'
 
-// --- Visual constants -----------------------------------------------------
+// --- Renderer configuration -------------------------------------------------
+// Every tunable visual constant lives here. Firmware note: PIXELS_PER_SECOND
+// is the canvas analogue of the physical scroll speed (36 mm/s).
 
-const TRACK_HEIGHT = 11
-const TRACK_GAP = 1
-const TRACK_COUNT = 30
-const STRIP_HEIGHT = TRACK_COUNT * (TRACK_HEIGHT + TRACK_GAP) // 360px
-const PIXELS_PER_SECOND = 108 // ~9mm-equivalent scroll per 250ms note
-const READ_HEAD_X_RATIO = 0.32 // comb sits at 32% from left edge
-// Paper — cooler, less yellow, more translucent parchment
-const PAPER_COLOR = '#E8E0CC' // was #F0DEB0, too yellow
-const PAPER_EDGE_DARK = '#A09060' // was #C8A850
-// Holes — deeper
-const HOLE_COLOR = '#0C0800' // was #140A00
-// Comb — less saturated brass
-const COMB_COLOR = '#6B5214' // was #8B6914
-const TINE_BRIGHT = '#B08C18' // was #D4A820
-const TINE_WIDTH = 3
-const BACKGROUND = '#0b0b0b'
-const COMB_BODY_WIDTH = 20
+export const RENDERER_CONFIG = {
+  // Geometry
+  TRACK_HEIGHT: 11,
+  TRACK_GAP: 1,
+  TRACK_COUNT: 30,
+  PIXELS_PER_SECOND: 108, // ~9px-equivalent scroll per 250ms note
+  READ_HEAD_X_RATIO: 0.32, // comb sits at 32% from left edge
+  ACTIVE_TOLERANCE_PX: 4,
 
-const TRACK_PITCH = TRACK_HEIGHT + TRACK_GAP
-const ACTIVE_TOLERANCE_PX = 4
-const TINE_LENGTH = 18
-const EDGE_SHADOW_HEIGHT = 8
+  // Paper — cooler, less yellow, translucent parchment
+  PAPER_COLOR: '#E8E0CC',
+  PAPER_EDGE_DARK: '#A09060',
+  EDGE_SHADOW_HEIGHT: 8,
+  STRIP_DROP_SHADOW: 'rgba(0,0,0,0.6)', // strip floats above the background
+  STRIP_DROP_SHADOW_SIZE: 4,
+  GRAIN_TILE_SIZE: 128, // px, offscreen noise tile
+  GRAIN_ALPHA: 0.045,
+
+  // Holes
+  HOLE_COLOR: '#0C0800',
+  HOLE_RIM_DARK: 'rgba(80,40,0,0.5)',
+  HOLE_RIM_LIGHT: 'rgba(255,240,200,0.08)', // 1px inset rim: physical depth
+
+  // Comb — engraved, desaturated brass
+  COMB_COLOR: '#6B5214',
+  TINE_BRIGHT: '#B08C18',
+  TINE_HIGHLIGHT: 'rgba(255,230,150,0.45)', // 1px engraved top line per tine
+  TINE_WIDTH: 3,
+  TINE_LENGTH: 18,
+  COMB_BODY_WIDTH: 20,
+
+  // Scene
+  BACKGROUND: '#0b0b0b',
+  EDGE_FADE_WIDTH: 120,
+
+  // Animation
+  PUNCH_DURATION_MS: 1200,
+  IDLE_PERIOD_MS: 3000, // breathing period of the idle pulse
+  IDLE_BASE_RADIUS: 90, // px, pulse radius before breathing scale
+} as const
+
+const C = RENDERER_CONFIG
+const STRIP_HEIGHT = C.TRACK_COUNT * (C.TRACK_HEIGHT + C.TRACK_GAP) // 360px
+const TRACK_PITCH = C.TRACK_HEIGHT + C.TRACK_GAP
 
 /**
  * Rounded-rectangle path helper (radius clamped to fit the rect).
@@ -48,12 +72,34 @@ function roundRectPath(
   ctx.closePath()
 }
 
+/**
+ * Build a small offscreen tile of monochrome noise, used as a repeating
+ * paper-grain pattern. Procedural — no image assets.
+ */
+function makeGrainTile(size: number): HTMLCanvasElement {
+  const tile = document.createElement('canvas')
+  tile.width = size
+  tile.height = size
+  const tctx = tile.getContext('2d')!
+  const imageData = tctx.createImageData(size, size)
+  const px = imageData.data
+  for (let i = 0; i < px.length; i += 4) {
+    const v = Math.floor(Math.random() * 255)
+    px[i] = v
+    px[i + 1] = v
+    px[i + 2] = v
+    px[i + 3] = 255
+  }
+  tctx.putImageData(imageData, 0, 0)
+  return tile
+}
+
 export class StripRenderer {
   private canvas: HTMLCanvasElement
   private ctx: CanvasRenderingContext2D
 
   private strip: StripJSON | null = null
-  private totalDuration = 0
+  private _totalDuration = 0
 
   private playing = false
   private _currentTime = 0
@@ -67,12 +113,19 @@ export class StripRenderer {
   private punchProgress = 1
 
   private paperImage: HTMLImageElement | null = null
+  private grainPattern: CanvasPattern | null = null
 
   private lightIntensity = 1.0
+
+  // Idle breathing: a slow ambient pulse at the read head while the strip is
+  // loaded but not playing — the machine is alive, waiting for a hand.
+  private idleRafId: number | null = null
+  private idleStart = 0
 
   onNotePlay: ((note: NoteEvent, trackIndex: number) => void) | null = null
 
   private readonly resizeHandler: () => void
+  private resizeObserver: ResizeObserver | null = null
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas
@@ -80,12 +133,24 @@ export class StripRenderer {
     if (!ctx) throw new Error('2D canvas context not available')
     this.ctx = ctx
 
-    this.resizeHandler = () => {
-      this.syncCanvasSize()
-      this.draw()
-    }
-    window.addEventListener('resize', this.resizeHandler)
+    this.grainPattern = ctx.createPattern(makeGrainTile(C.GRAIN_TILE_SIZE), 'repeat')
 
+    // Window resize covers devicePixelRatio changes (e.g. moving the window
+    // between displays); the ResizeObserver covers element-level layout
+    // changes (mobile rotation, responsive reflow).
+    this.resizeHandler = () => this.resize()
+    window.addEventListener('resize', this.resizeHandler)
+    if (typeof ResizeObserver !== 'undefined') {
+      this.resizeObserver = new ResizeObserver(() => this.resize())
+      this.resizeObserver.observe(canvas)
+    }
+
+    this.syncCanvasSize()
+    this.draw()
+  }
+
+  /** Re-sync the canvas backing store to its current CSS size and redraw. */
+  resize(): void {
     this.syncCanvasSize()
     this.draw()
   }
@@ -112,7 +177,7 @@ export class StripRenderer {
   }
 
   private get readHeadX(): number {
-    return this.cssWidth * READ_HEAD_X_RATIO
+    return this.cssWidth * C.READ_HEAD_X_RATIO
   }
 
   private get stripY(): number {
@@ -136,19 +201,21 @@ export class StripRenderer {
     this.glowTracker.clear()
     this.activeNoteIds.clear()
     this.strip = strip
-    this.totalDuration = strip.notes.reduce((sum, n) => sum + n.dur, 0)
+    this._totalDuration = strip.notes.reduce((sum, n) => sum + n.dur, 0)
     this._currentTime = 0
     this.playing = false
     this.firedNotes.clear()
     this.lightIntensity = 1.0
     this.cancelRaf()
     this.draw()
+    this.startIdle()
   }
 
   play(): void {
     if (!this.strip || this.playing) return
+    this.stopIdle()
     // If we're at (or past) the end, restart from the beginning.
-    if (this._currentTime >= this.totalDuration + 1) {
+    if (this._currentTime >= this._totalDuration + 1) {
       this.reset()
     }
     this.playing = true
@@ -159,6 +226,7 @@ export class StripRenderer {
   pause(): void {
     this.playing = false
     this.cancelRaf()
+    this.startIdle()
   }
 
   reset(): void {
@@ -181,18 +249,19 @@ export class StripRenderer {
         return
       }
 
-      const duration = 1200 // ms total punch animation
+      this.stopIdle()
       const start = performance.now()
 
       const animate = (): void => {
         const elapsed = performance.now() - start
-        this.punchProgress = Math.min(elapsed / duration, 1)
+        this.punchProgress = Math.min(elapsed / C.PUNCH_DURATION_MS, 1)
         this.draw()
 
         if (this.punchProgress < 1) {
           requestAnimationFrame(animate)
         } else {
           this.punchProgress = 1
+          if (!this.playing) this.startIdle()
           resolve()
         }
       }
@@ -204,7 +273,10 @@ export class StripRenderer {
 
   dispose(): void {
     this.cancelRaf()
+    this.stopIdle()
     window.removeEventListener('resize', this.resizeHandler)
+    this.resizeObserver?.disconnect()
+    this.resizeObserver = null
     this.onNotePlay = null
   }
 
@@ -216,11 +288,66 @@ export class StripRenderer {
     return this._currentTime
   }
 
+  /** Total strip duration in seconds. Mirrors what firmware derives from notes. */
+  get totalDuration(): number {
+    return this._totalDuration
+  }
+
+  /** Playback progress 0–1. */
+  get progress(): number {
+    if (this._totalDuration <= 0) return 0
+    return Math.min(1, this._currentTime / this._totalDuration)
+  }
+
   private cancelRaf(): void {
     if (this.rafId !== null) {
       cancelAnimationFrame(this.rafId)
       this.rafId = null
     }
+  }
+
+  // --- Idle breathing -------------------------------------------------------
+
+  private startIdle(): void {
+    if (this.idleRafId !== null || !this.strip || this.playing) return
+    this.idleStart = performance.now()
+    const loop = (now: number): void => {
+      if (this.playing || !this.strip) {
+        this.idleRafId = null
+        return
+      }
+      this.draw()
+      this.drawIdlePulse(now)
+      this.idleRafId = requestAnimationFrame(loop)
+    }
+    this.idleRafId = requestAnimationFrame(loop)
+  }
+
+  private stopIdle(): void {
+    if (this.idleRafId !== null) {
+      cancelAnimationFrame(this.idleRafId)
+      this.idleRafId = null
+    }
+  }
+
+  /** Slow sin-based pulse at the read head: scale 0.8–1.0, period ~3s. */
+  private drawIdlePulse(now: number): void {
+    const ctx = this.ctx
+    const phase = ((now - this.idleStart) % C.IDLE_PERIOD_MS) / C.IDLE_PERIOD_MS
+    const breathe = 0.9 + 0.1 * Math.sin(phase * Math.PI * 2) // 0.8–1.0 scale
+    const radius = C.IDLE_BASE_RADIUS * breathe
+    const cx = this.readHeadX
+    const cy = this.stripY + STRIP_HEIGHT / 2
+
+    ctx.save()
+    ctx.globalCompositeOperation = 'lighter'
+    const pulse = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius)
+    pulse.addColorStop(0, `rgba(255,240,200,${0.05 * breathe})`)
+    pulse.addColorStop(0.6, `rgba(255,240,200,${0.02 * breathe})`)
+    pulse.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.fillStyle = pulse
+    ctx.fillRect(cx - radius, cy - radius, radius * 2, radius * 2)
+    ctx.restore()
   }
 
   private tick = (now: number): void => {
@@ -232,9 +359,10 @@ export class StripRenderer {
     this.fireActiveNotes()
     this.draw()
 
-    if (this._currentTime >= this.totalDuration + 1) {
+    if (this._currentTime >= this._totalDuration + 1) {
       this.playing = false
       this.rafId = null
+      this.startIdle() // strip finished — the machine waits again
       return
     }
     this.rafId = requestAnimationFrame(this.tick)
@@ -245,8 +373,8 @@ export class StripRenderer {
     this.strip.notes.forEach((note, i) => {
       if (this.firedNotes.has(i)) return
       if (note.pitch === null) return
-      const holeX = this.readHeadX + (note.t - this._currentTime) * PIXELS_PER_SECOND
-      if (Math.abs(holeX - this.readHeadX) <= ACTIVE_TOLERANCE_PX) {
+      const holeX = this.readHeadX + (note.t - this._currentTime) * C.PIXELS_PER_SECOND
+      if (Math.abs(holeX - this.readHeadX) <= C.ACTIVE_TOLERANCE_PX) {
         this.firedNotes.add(i)
         const trackIndex = SANKYO_30.indexOf(note.pitch as (typeof SANKYO_30)[number])
         this.onNotePlay?.(note, trackIndex)
@@ -261,15 +389,36 @@ export class StripRenderer {
     const w = this.cssWidth
     const h = this.cssHeight
 
-    ctx.fillStyle = BACKGROUND
+    ctx.fillStyle = C.BACKGROUND
     ctx.fillRect(0, 0, w, h)
 
+    this.drawStripShadow()
     this.drawPaper()
     this.drawSpotlight()
     this.drawHoles()
     this.drawBlooms()
     this.drawEdgeFades()
     this.drawComb()
+  }
+
+  /** Drop shadow above and below the strip — it floats over the background. */
+  private drawStripShadow(): void {
+    const ctx = this.ctx
+    const w = this.cssWidth
+    const y = this.stripY
+    const s = C.STRIP_DROP_SHADOW_SIZE
+
+    const topShadow = ctx.createLinearGradient(0, y - s, 0, y)
+    topShadow.addColorStop(0, 'rgba(0,0,0,0)')
+    topShadow.addColorStop(1, C.STRIP_DROP_SHADOW)
+    ctx.fillStyle = topShadow
+    ctx.fillRect(0, y - s, w, s)
+
+    const botShadow = ctx.createLinearGradient(0, y + STRIP_HEIGHT, 0, y + STRIP_HEIGHT + s)
+    botShadow.addColorStop(0, C.STRIP_DROP_SHADOW)
+    botShadow.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.fillStyle = botShadow
+    ctx.fillRect(0, y + STRIP_HEIGHT, w, s)
   }
 
   /** Subtle backlight at read head — drawn after paper, before holes. */
@@ -297,20 +446,21 @@ export class StripRenderer {
     const ctx = this.ctx
     const w = this.cssWidth
     const stripY = this.stripY
+    const fw = C.EDGE_FADE_WIDTH
 
     // Left fade
-    const leftFade = ctx.createLinearGradient(0, stripY, 120, stripY)
+    const leftFade = ctx.createLinearGradient(0, stripY, fw, stripY)
     leftFade.addColorStop(0, 'rgba(11,11,11,1)')
     leftFade.addColorStop(1, 'rgba(11,11,11,0)')
     ctx.fillStyle = leftFade
-    ctx.fillRect(0, stripY, 120, STRIP_HEIGHT)
+    ctx.fillRect(0, stripY, fw, STRIP_HEIGHT)
 
     // Right fade
-    const rightFade = ctx.createLinearGradient(w - 120, stripY, w, stripY)
+    const rightFade = ctx.createLinearGradient(w - fw, stripY, w, stripY)
     rightFade.addColorStop(0, 'rgba(11,11,11,0)')
     rightFade.addColorStop(1, 'rgba(11,11,11,1)')
     ctx.fillStyle = rightFade
-    ctx.fillRect(w - 120, stripY, 120, STRIP_HEIGHT)
+    ctx.fillRect(w - fw, stripY, fw, STRIP_HEIGHT)
   }
 
   private drawPaper(): void {
@@ -331,14 +481,25 @@ export class StripRenderer {
       ctx.fillStyle = 'rgba(11, 11, 11, 0.45)'
       ctx.fillRect(0, stripY, canvas.width, STRIP_HEIGHT)
     } else {
-      ctx.fillStyle = PAPER_COLOR
+      ctx.fillStyle = C.PAPER_COLOR
       ctx.fillRect(0, stripY, canvas.width, STRIP_HEIGHT)
+    }
+
+    // Paper grain: procedural noise tile, barely-there, gives the strip
+    // material presence without any image asset.
+    if (this.grainPattern) {
+      ctx.save()
+      ctx.globalAlpha = C.GRAIN_ALPHA
+      ctx.globalCompositeOperation = 'overlay'
+      ctx.fillStyle = this.grainPattern
+      ctx.fillRect(0, stripY, w, STRIP_HEIGHT)
+      ctx.restore()
     }
 
     // Very faint track dividers, as if lit from below.
     ctx.strokeStyle = 'rgba(160, 140, 100, 0.12)'
     ctx.lineWidth = 0.5
-    for (let i = 1; i < TRACK_COUNT; i++) {
+    for (let i = 1; i < C.TRACK_COUNT; i++) {
       const lineY = Math.round(y + i * TRACK_PITCH) + 0.5
       ctx.beginPath()
       ctx.moveTo(0, lineY)
@@ -347,23 +508,23 @@ export class StripRenderer {
     }
 
     // Top edge shadow.
-    const topGrad = ctx.createLinearGradient(0, y, 0, y + EDGE_SHADOW_HEIGHT)
-    topGrad.addColorStop(0, PAPER_EDGE_DARK)
+    const topGrad = ctx.createLinearGradient(0, y, 0, y + C.EDGE_SHADOW_HEIGHT)
+    topGrad.addColorStop(0, C.PAPER_EDGE_DARK)
     topGrad.addColorStop(1, 'rgba(200,168,80,0)')
     ctx.fillStyle = topGrad
-    ctx.fillRect(0, y, w, EDGE_SHADOW_HEIGHT)
+    ctx.fillRect(0, y, w, C.EDGE_SHADOW_HEIGHT)
 
     // Bottom edge shadow.
     const botGrad = ctx.createLinearGradient(
       0,
-      y + STRIP_HEIGHT - EDGE_SHADOW_HEIGHT,
+      y + STRIP_HEIGHT - C.EDGE_SHADOW_HEIGHT,
       0,
       y + STRIP_HEIGHT,
     )
     botGrad.addColorStop(0, 'rgba(200,168,80,0)')
-    botGrad.addColorStop(1, PAPER_EDGE_DARK)
+    botGrad.addColorStop(1, C.PAPER_EDGE_DARK)
     ctx.fillStyle = botGrad
-    ctx.fillRect(0, y + STRIP_HEIGHT - EDGE_SHADOW_HEIGHT, w, EDGE_SHADOW_HEIGHT)
+    ctx.fillRect(0, y + STRIP_HEIGHT - C.EDGE_SHADOW_HEIGHT, w, C.EDGE_SHADOW_HEIGHT)
   }
 
   private drawHoles(): void {
@@ -382,33 +543,46 @@ export class StripRenderer {
 
       // Punch reveal: holes appear only once the frontier has swept past them.
       const holeNormalizedX =
-        this.totalDuration > 0 ? note.t / this.totalDuration : 0
+        this._totalDuration > 0 ? note.t / this._totalDuration : 0
       if (holeNormalizedX > this.punchProgress) continue
 
-      const holeWidth = note.dur * PIXELS_PER_SECOND - 2
-      const holeX = readHeadX + (note.t - this._currentTime) * PIXELS_PER_SECOND
+      const holeWidth = note.dur * C.PIXELS_PER_SECOND - 2
+      const holeX = readHeadX + (note.t - this._currentTime) * C.PIXELS_PER_SECOND
 
       // Cull holes fully off-screen.
       if (holeX + holeWidth < 0 || holeX > w) continue
 
       const holeY =
-        y0 + (TRACK_COUNT - 1 - trackIndex) * TRACK_PITCH + TRACK_GAP / 2
+        y0 + (C.TRACK_COUNT - 1 - trackIndex) * TRACK_PITCH + C.TRACK_GAP / 2
 
-      const holeRadius = Math.min(holeWidth / 2, TRACK_HEIGHT / 2)
-      const holeColor = this.paperImage ? 'rgba(220, 200, 150, 0.18)' : HOLE_COLOR
-      roundRectPath(ctx, holeX, holeY, holeWidth, TRACK_HEIGHT, holeRadius)
+      const holeRadius = Math.min(holeWidth / 2, C.TRACK_HEIGHT / 2)
+      const holeColor = this.paperImage ? 'rgba(220, 200, 150, 0.18)' : C.HOLE_COLOR
+      roundRectPath(ctx, holeX, holeY, holeWidth, C.TRACK_HEIGHT, holeRadius)
       ctx.fillStyle = holeColor
       ctx.fill()
 
-      // 1px lighter inner rim.
-      ctx.strokeStyle = 'rgba(80,40,0,0.5)'
+      // Dark inner rim (die-cut edge).
+      ctx.strokeStyle = C.HOLE_RIM_DARK
       ctx.lineWidth = 0.5
+      ctx.stroke()
+
+      // 1px light inset rim — catches the light, suggests physical depth.
+      roundRectPath(
+        ctx,
+        holeX + 1,
+        holeY + 1,
+        holeWidth - 2,
+        C.TRACK_HEIGHT - 2,
+        Math.max(0, holeRadius - 1),
+      )
+      ctx.strokeStyle = C.HOLE_RIM_LIGHT
+      ctx.lineWidth = 1
       ctx.stroke()
 
       // Stamp flash on holes at the punch frontier.
       const atFrontier = Math.abs(holeNormalizedX - this.punchProgress) < 0.03
       if (atFrontier && this.punchProgress < 1) {
-        const holeCenterY = holeY + TRACK_HEIGHT / 2
+        const holeCenterY = holeY + C.TRACK_HEIGHT / 2
         const flashX = holeX + holeWidth / 2
         const flash = ctx.createRadialGradient(
           flashX,
@@ -469,17 +643,17 @@ export class StripRenderer {
       )
       if (trackIndex < 0) return
 
-      const holeWidth = note.dur * PIXELS_PER_SECOND - 2
-      const holeX = readHeadX + (note.t - this._currentTime) * PIXELS_PER_SECOND
+      const holeWidth = note.dur * C.PIXELS_PER_SECOND - 2
+      const holeX = readHeadX + (note.t - this._currentTime) * C.PIXELS_PER_SECOND
       const holeCenterX = holeX + holeWidth / 2
 
-      if (Math.abs(holeCenterX - readHeadX) > ACTIVE_TOLERANCE_PX) return
+      if (Math.abs(holeCenterX - readHeadX) > C.ACTIVE_TOLERANCE_PX) return
 
       nowActive.add(i)
 
       const holeY =
-        y0 + (TRACK_COUNT - 1 - trackIndex) * TRACK_PITCH + TRACK_GAP / 2
-      const holeCenterY = holeY + TRACK_HEIGHT / 2
+        y0 + (C.TRACK_COUNT - 1 - trackIndex) * TRACK_PITCH + C.TRACK_GAP / 2
+      const holeCenterY = holeY + C.TRACK_HEIGHT / 2
 
       // Only on the false -> true transition: seed a decaying glow and flash.
       if (!this.activeNoteIds.has(i)) {
@@ -510,32 +684,33 @@ export class StripRenderer {
     const y0 = this.stripY
 
     // Tines: thin horizontal lines extending left, one per track.
-    for (let track = 0; track < TRACK_COUNT; track++) {
-      const rowTop = y0 + (TRACK_COUNT - 1 - track) * TRACK_PITCH + TRACK_GAP / 2
-      const tineCenterY = rowTop + TRACK_HEIGHT / 2
-      const tineTop = tineCenterY - TINE_WIDTH / 2
-      const tineLeft = readHeadX - COMB_BODY_WIDTH / 2 - TINE_LENGTH
-      const tineRight = readHeadX - COMB_BODY_WIDTH / 2
+    for (let track = 0; track < C.TRACK_COUNT; track++) {
+      const rowTop = y0 + (C.TRACK_COUNT - 1 - track) * TRACK_PITCH + C.TRACK_GAP / 2
+      const tineCenterY = rowTop + C.TRACK_HEIGHT / 2
+      const tineTop = tineCenterY - C.TINE_WIDTH / 2
+      const tineLeft = readHeadX - C.COMB_BODY_WIDTH / 2 - C.TINE_LENGTH
 
       // Base tine.
-      ctx.fillStyle = COMB_COLOR
-      ctx.fillRect(tineLeft, tineTop, TINE_LENGTH, TINE_WIDTH)
-      // Bright top half highlight.
-      ctx.fillStyle = TINE_BRIGHT
-      ctx.fillRect(tineLeft, tineTop, TINE_LENGTH, TINE_WIDTH / 2)
-      void tineRight
+      ctx.fillStyle = C.COMB_COLOR
+      ctx.fillRect(tineLeft, tineTop, C.TINE_LENGTH, C.TINE_WIDTH)
+      // Bright top half.
+      ctx.fillStyle = C.TINE_BRIGHT
+      ctx.fillRect(tineLeft, tineTop, C.TINE_LENGTH, C.TINE_WIDTH / 2)
+      // 1px engraved highlight along the top edge of each tine.
+      ctx.fillStyle = C.TINE_HIGHLIGHT
+      ctx.fillRect(tineLeft, tineTop, C.TINE_LENGTH, 1)
     }
 
     // Brass body: rounded rect.
-    const bodyX = readHeadX - COMB_BODY_WIDTH / 2
+    const bodyX = readHeadX - C.COMB_BODY_WIDTH / 2
     const bodyY = y0 - 6
     const bodyH = STRIP_HEIGHT + 12
-    const bodyGrad = ctx.createLinearGradient(bodyX, 0, bodyX + COMB_BODY_WIDTH, 0)
+    const bodyGrad = ctx.createLinearGradient(bodyX, 0, bodyX + C.COMB_BODY_WIDTH, 0)
     bodyGrad.addColorStop(0, '#6E5310')
-    bodyGrad.addColorStop(0.5, COMB_COLOR)
-    bodyGrad.addColorStop(0.5, TINE_BRIGHT)
+    bodyGrad.addColorStop(0.5, C.COMB_COLOR)
+    bodyGrad.addColorStop(0.5, C.TINE_BRIGHT)
     bodyGrad.addColorStop(1, '#7A5C10')
-    roundRectPath(ctx, bodyX, bodyY, COMB_BODY_WIDTH, bodyH, 4)
+    roundRectPath(ctx, bodyX, bodyY, C.COMB_BODY_WIDTH, bodyH, 4)
     ctx.fillStyle = bodyGrad
     ctx.fill()
   }

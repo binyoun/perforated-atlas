@@ -78,19 +78,65 @@ async function fetchMapPaper(
   }
 }
 
-const cityInput = document.getElementById('city-input') as HTMLInputElement
-const countryInput = document.getElementById('country-input') as HTMLInputElement
-const wordGrid = document.getElementById('word-grid') as HTMLDivElement
-const translateBtn = document.getElementById('translate-btn') as HTMLButtonElement
-const canvas = document.getElementById('strip-canvas') as HTMLCanvasElement
-const playPauseBtn = document.getElementById('play-pause-btn') as HTMLButtonElement
-const iconPlay = playPauseBtn.querySelector('.icon-play') as SVGElement
-const iconPause = playPauseBtn.querySelector('.icon-pause') as SVGElement
-const stripMeta = document.getElementById('strip-meta') as HTMLDivElement
-const imageUpload = document.getElementById('image-upload') as HTMLInputElement
-const paperStatus = document.getElementById('paper-status') as HTMLSpanElement
+/** Fetch a required element by id; fail loudly at startup instead of silently later. */
+function requireEl<T extends HTMLElement>(id: string): T {
+  const el = document.getElementById(id)
+  if (!el) throw new Error(`Perforated Atlas: required element #${id} missing from DOM`)
+  return el as T
+}
+
+const cityInput = requireEl<HTMLInputElement>('city-input')
+const countryInput = requireEl<HTMLInputElement>('country-input')
+const wordGrid = requireEl<HTMLDivElement>('word-grid')
+const translateBtn = requireEl<HTMLButtonElement>('translate-btn')
+const canvas = requireEl<HTMLCanvasElement>('strip-canvas')
+const playPauseBtn = requireEl<HTMLButtonElement>('play-pause-btn')
+const iconPlay = playPauseBtn.querySelector<SVGElement>('.icon-play')
+const iconPause = playPauseBtn.querySelector<SVGElement>('.icon-pause')
+const stripMeta = requireEl<HTMLDivElement>('strip-meta')
+const imageUpload = requireEl<HTMLInputElement>('image-upload')
+const paperStatus = requireEl<HTMLSpanElement>('paper-status')
 
 const WORD_COUNT = 12
+
+// --- Welcome state ----------------------------------------------------------
+// First load shows only the title plate; one instruction line fades in, then
+// the input area takes over (after a beat, or on the visitor's first gesture).
+
+const mainEl = document.querySelector('main')
+const welcomeLine = document.getElementById('welcome-line')
+let welcomeDone = false
+
+function endWelcome(): void {
+  if (welcomeDone) return
+  welcomeDone = true
+  mainEl?.setAttribute('data-state', 'input')
+}
+
+setTimeout(() => welcomeLine?.classList.add('shown'), 1500)
+setTimeout(endWelcome, 4500)
+window.addEventListener('keydown', endWelcome, { once: true })
+window.addEventListener('pointerdown', endWelcome, { once: true })
+
+/** Reveal the apparatus section (null-safe; used from several flows). */
+function showApparatus(): void {
+  document.querySelector('.apparatus-area')?.classList.add('visible')
+}
+
+// --- Post-translation afterword ----------------------------------------------
+
+let afterwordTimers: ReturnType<typeof setTimeout>[] = []
+
+/** "The words are gone." — fade in 0.5s after the punch, fade out after 4s. */
+function showAfterword(): void {
+  const el = document.getElementById('afterword')
+  if (!el) return
+  for (const t of afterwordTimers) clearTimeout(t)
+  afterwordTimers = [
+    setTimeout(() => el.classList.add('visible'), 500),
+    setTimeout(() => el.classList.remove('visible'), 4500),
+  ]
+}
 
 // --- Paper source (map tile or uploaded image) ----------------------------
 
@@ -241,8 +287,17 @@ function initGeolocation(): void {
   if (!navigator.geolocation) return
   if (!uploadedPaper) paperStatus.textContent = 'detecting location…'
 
+  // Safety net: some browsers never invoke either callback (e.g. the
+  // permission prompt is ignored). Don't leave "detecting location…" forever.
+  const statusTimeout = setTimeout(() => {
+    if (paperStatus.textContent === 'detecting location…') {
+      paperStatus.textContent = ''
+    }
+  }, 12000)
+
   navigator.geolocation.getCurrentPosition(
     async (pos) => {
+      clearTimeout(statusTimeout)
       const { latitude, longitude } = pos.coords
 
       // Tile fetch and reverse geocode in parallel — no forward-geocode step needed
@@ -261,6 +316,7 @@ function initGeolocation(): void {
       }
     },
     () => {
+      clearTimeout(statusTimeout)
       // Permission denied or unavailable — fall back to manual entry silently
       if (!uploadedPaper && !pendingPaper) paperStatus.textContent = ''
     },
@@ -273,9 +329,11 @@ initGeolocation()
 // --- Play/pause button UI -------------------------------------------------
 
 function setButtonPlaying(isPlaying: boolean): void {
-  iconPlay.style.display = isPlaying ? 'none' : ''
-  iconPause.style.display = isPlaying ? '' : 'none'
+  if (iconPlay) iconPlay.style.display = isPlaying ? 'none' : ''
+  if (iconPause) iconPause.style.display = isPlaying ? '' : 'none'
   playPauseBtn.setAttribute('aria-label', isPlaying ? 'Pause' : 'Play')
+  const label = document.getElementById('btn-label')
+  if (label) label.textContent = isPlaying ? 'PAUSE' : 'PLAY'
 }
 
 /**
@@ -339,6 +397,12 @@ async function activatePresence(): Promise<void> {
 
   try {
     await handPresence.init()
+    if (!handPresence.isReady) {
+      // Model/CDN load failed (offline gallery) — brass button fallback only
+      presenceActive = false
+      setCameraIndicator(null)
+      return
+    }
     handPresence.start()
     setCameraIndicator(false) // ready, no hand yet
   } catch {
@@ -351,10 +415,11 @@ async function activatePresence(): Promise<void> {
 // --- Share UI (QR + permalink + PNG export) -------------------------------
 
 async function updateShareUI(strip: StripJSON): Promise<void> {
-  const panel = document.getElementById('share-panel') as HTMLElement
-  const qrImg = document.getElementById('qr-img') as HTMLImageElement
-  const copyBtn = document.getElementById('copy-link-btn') as HTMLButtonElement
-  const exportBtn = document.getElementById('export-png-btn') as HTMLButtonElement
+  const panel = document.getElementById('share-panel')
+  const qrImg = document.getElementById('qr-img') as HTMLImageElement | null
+  const copyBtn = document.getElementById('copy-link-btn') as HTMLButtonElement | null
+  const exportBtn = document.getElementById('export-png-btn') as HTMLButtonElement | null
+  if (!panel || !qrImg || !copyBtn || !exportBtn) return
 
   if (!archiveEnabled) { panel.style.display = 'none'; return }
 
@@ -396,8 +461,7 @@ async function doTranslate(): Promise<void> {
   renderer.setPaper(uploadedPaper ?? pendingPaper)
 
   // 3. Show the apparatus area.
-  const apparatusArea = document.querySelector('.apparatus-area') as HTMLElement
-  apparatusArea.classList.add('visible')
+  showApparatus()
 
   playPauseBtn.disabled = false
 
@@ -417,6 +481,9 @@ async function doTranslate(): Promise<void> {
   await new Promise((r) => setTimeout(r, 700))
   await renderer.punch()
 
+  // 5b. "The words are gone. Only the pattern remains."
+  showAfterword()
+
   // 6. Save to archive (fire-and-forget — don't block playback)
   void saveStrip(strip).then(() => {
     archiveView.prepend(strip)
@@ -433,7 +500,7 @@ translateBtn.addEventListener('click', doTranslate)
 
 // --- Play/pause toggle ----------------------------------------------------
 
-playPauseBtn.addEventListener('click', async () => {
+async function togglePlayPause(): Promise<void> {
   // A tap on the brass button also tries to wake the camera (idempotent).
   void activatePresence()
   if (renderer.isPlaying) {
@@ -442,26 +509,37 @@ playPauseBtn.addEventListener('click', async () => {
     soundEngine.stopMechanical()
   } else {
     // Keep the apparatus visible (already true after first translate).
-    document.querySelector('.apparatus-area')?.classList.add('visible')
+    showApparatus()
     await ensureSound()
     soundEngine.startMechanical()
     renderer.play()
     setButtonPlaying(true)
     watchPlayback()
   }
+}
+
+playPauseBtn.addEventListener('click', () => void togglePlayPause())
+
+// Spacebar toggles play/pause once a strip is loaded (unless typing in a field).
+window.addEventListener('keydown', (e) => {
+  if (e.code !== 'Space') return
+  const target = e.target as HTMLElement | null
+  if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA')) return
+  if (playPauseBtn.disabled) return
+  e.preventDefault()
+  void togglePlayPause()
 })
 
 // --- Archive view ---------------------------------------------------------
 
-const archiveSection = document.getElementById('archive-section') as HTMLElement
+const archiveSection = requireEl<HTMLElement>('archive-section')
 const archiveView = new ArchiveView(archiveSection)
 
 // When a visitor selects an archive strip, load and play it
 archiveView.onSelect = (strip) => {
   renderer.load(strip)
   renderer.setPaper(uploadedPaper ?? pendingPaper)
-  const apparatusArea = document.querySelector('.apparatus-area') as HTMLElement
-  apparatusArea.classList.add('visible')
+  showApparatus()
   playPauseBtn.disabled = false
   void updateShareUI(strip)
   // Update URL hash for shareability
@@ -481,10 +559,10 @@ async function handleHashRoute(): Promise<void> {
   if (!strip) return
 
   // Load and show the strip without going through the input flow
+  endWelcome() // permalink arrivals skip the welcome beat
   renderer.load(strip)
   renderer.setPaper(uploadedPaper ?? pendingPaper)
-  const apparatusArea = document.querySelector('.apparatus-area') as HTMLElement
-  apparatusArea.classList.add('visible')
+  showApparatus()
   playPauseBtn.disabled = false
 
   void updateShareUI(strip)
